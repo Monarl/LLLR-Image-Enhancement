@@ -1,0 +1,34 @@
+docker compose build
+docker compose up -d
+docker compose exec mambair bash
+conda env create -f environment.yaml
+conda init bash
+exec bash
+conda activate mambair
+python basicsr/train.py -opt options/train/mambairv2/train_MambaIRv2_lightSR_x4.yml
+python basicsr/test.py -opt options/test/mambairv2/test_lightSR_x4_singleimage.yml
+
+Change yml file to use 1 gpu and double the batch size
+------------------------------------------------------------------------------
+Visualize test image command
+
+# Without brightness enhancement (original)
+python visualize-test.py
+
+# With brightness enhancement (default 2.5x)
+python visualize-test.py --enhance
+
+# With custom brightness factor
+python visualize-test.py --enhance --brightness 3.5
+
+# With custom paths
+python visualize-test.py --enhance --brightness 2.0 --input /custom/input --output /custom/output --save /custom/save
+
+# With custom ground truth path
+python visualize-test.py --enhance --metrics --gt /workspace/samples/results
+
+# With Y-channel testing (standard for SR benchmarks)
+python visualize-test.py --enhance --metrics --test-y-channel
+
+# See all options
+python visualize-test.py --help

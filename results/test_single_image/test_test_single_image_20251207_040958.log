@@ -1,0 +1,140 @@
+2025-12-07 04:09:58,010 INFO: 
+  name: test_single_image
+  model_type: MambaIRv2LightModel
+  scale: 4
+  num_gpu: 1
+  manual_seed: 10
+  datasets:[
+    test_1:[
+      name: MyImages
+      type: SingleImageDataset
+      dataroot_lq: /workspace/samples/inputs
+      io_backend:[
+        type: disk
+      ]
+      phase: test
+      scale: 4
+    ]
+  ]
+  network_g:[
+    type: MambaIRv2Light
+    upscale: 4
+    in_chans: 3
+    img_size: 64
+    img_range: 1.0
+    embed_dim: 48
+    d_state: 8
+    depths: [5, 5, 5, 5]
+    num_heads: [4, 4, 4, 4]
+    window_size: 16
+    inner_rank: 32
+    num_tokens: 64
+    convffn_kernel_size: 5
+    mlp_ratio: 1.0
+    upsampler: pixelshuffledirect
+    resi_connection: 1conv
+  ]
+  path:[
+    pretrain_network_g: /workspace/experiments/pretrained_models/mambairv2_lightSR_x4.pth
+    strict_load_g: True
+    results_root: /workspace/results/test_single_image
+    log: /workspace/results/test_single_image
+    visualization: /workspace/results/test_single_image/visualization
+  ]
+  val:[
+    save_img: True
+    suffix: None
+  ]
+  dist: False
+  rank: 0
+  world_size: 1
+  auto_resume: False
+  is_train: False
+
+2025-12-07 04:09:58,012 INFO: Dataset [SingleImageDataset] - MyImages is built.
+2025-12-07 04:09:58,013 INFO: Number of test images in MyImages: 4
+2025-12-07 04:09:59,994 INFO: Network [MambaIRv2Light] is created.
+2025-12-07 04:10:18,984 INFO: Network: MambaIRv2Light, with parameters: 789,680
+2025-12-07 04:10:18,985 INFO: MambaIRv2Light(
+  (conv_first): Conv2d(3, 48, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (patch_embed): PatchEmbed(
+    (norm): LayerNorm((48,), eps=1e-05, elementwise_affine=True)
+  )
+  (patch_unembed): PatchUnEmbed()
+  (layers): ModuleList(
+    (0-3): 4 x ASSB(
+      (patch_embed): PatchEmbed()
+      (patch_unembed): PatchUnEmbed()
+      (residual_group): BasicBlock(
+        dim=48, input_resolution=(64, 64), depth=5
+        (layers): ModuleList(
+          (0-4): 5 x AttentiveLayer(
+            (softmax): Softmax(dim=-1)
+            (lrelu): LeakyReLU(negative_slope=0.01)
+            (sigmoid): Sigmoid()
+            (norm1): LayerNorm((48,), eps=1e-05, elementwise_affine=True)
+            (norm2): LayerNorm((48,), eps=1e-05, elementwise_affine=True)
+            (norm3): LayerNorm((48,), eps=1e-05, elementwise_affine=True)
+            (norm4): LayerNorm((48,), eps=1e-05, elementwise_affine=True)
+            (wqkv): Linear(in_features=48, out_features=144, bias=True)
+            (win_mhsa): WindowAttention(
+              dim=48, window_size=(16, 16), num_heads=4, qkv_bias=True
+              (proj): Linear(in_features=48, out_features=48, bias=True)
+              (softmax): Softmax(dim=-1)
+            )
+            (assm): ASSM(
+              (selectiveScan): Selective_Scan()
+              (out_norm): LayerNorm((48,), eps=1e-05, elementwise_affine=True)
+              (act): SiLU()
+              (out_proj): Linear(in_features=48, out_features=48, bias=True)
+              (in_proj): Sequential(
+                (0): Conv2d(48, 48, kernel_size=(1, 1), stride=(1, 1))
+              )
+              (CPE): Sequential(
+                (0): Conv2d(48, 48, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), groups=48)
+              )
+              (embeddingB): Embedding(64, 32)
+              (route): Sequential(
+                (0): Linear(in_features=48, out_features=16, bias=True)
+                (1): GELU(approximate='none')
+                (2): Linear(in_features=16, out_features=64, bias=True)
+                (3): LogSoftmax(dim=-1)
+              )
+            )
+            (convffn1): GatedMLP(
+              (fc1): Linear(in_features=48, out_features=48, bias=True)
+              (act): GELU(approximate='none')
+              (sg): Gate(
+                (norm): LayerNorm((24,), eps=1e-05, elementwise_affine=True)
+                (conv): Conv2d(24, 24, kernel_size=(5, 5), stride=(1, 1), padding=(2, 2), groups=24)
+              )
+              (fc2): Linear(in_features=24, out_features=48, bias=True)
+              (drop): Dropout(p=0.0, inplace=False)
+            )
+            (convffn2): GatedMLP(
+              (fc1): Linear(in_features=48, out_features=48, bias=True)
+              (act): GELU(approximate='none')
+              (sg): Gate(
+                (norm): LayerNorm((24,), eps=1e-05, elementwise_affine=True)
+                (conv): Conv2d(24, 24, kernel_size=(5, 5), stride=(1, 1), padding=(2, 2), groups=24)
+              )
+              (fc2): Linear(in_features=24, out_features=48, bias=True)
+              (drop): Dropout(p=0.0, inplace=False)
+            )
+            (embeddingA): Embedding(32, 8)
+          )
+        )
+      )
+      (conv): Conv2d(48, 48, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+    )
+  )
+  (norm): LayerNorm((48,), eps=1e-05, elementwise_affine=True)
+  (conv_after_body): Conv2d(48, 48, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (upsample): UpsampleOneStep(
+    (0): Conv2d(48, 48, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+    (1): PixelShuffle(upscale_factor=4)
+  )
+)
+2025-12-07 04:10:21,436 INFO: Loading MambaIRv2Light model from /workspace/experiments/pretrained_models/mambairv2_lightSR_x4.pth, with param key: [params].
+2025-12-07 04:10:21,540 INFO: Model [MambaIRv2LightModel] is created.
+2025-12-07 04:10:21,541 INFO: Testing MyImages...

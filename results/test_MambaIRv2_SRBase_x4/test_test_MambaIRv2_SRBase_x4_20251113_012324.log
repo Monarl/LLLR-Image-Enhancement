@@ -1,0 +1,243 @@
+2025-11-13 01:23:24,854 INFO: 
+  name: test_MambaIRv2_SRBase_x4
+  model_type: MambaIRv2Model
+  scale: 4
+  num_gpu: 1
+  manual_seed: 10
+  datasets:[
+    test_1:[
+      name: Set5
+      type: PairedImageDataset
+      dataroot_gt: /workspace/datasets/SR/Set5/HR
+      dataroot_lq: /workspace/datasets/SR/Set5/LR_bicubic/X4
+      filename_tmpl: {}x4
+      io_backend:[
+        type: disk
+      ]
+      phase: test
+      scale: 4
+    ]
+    test_2:[
+      name: Set14
+      type: PairedImageDataset
+      dataroot_gt: /workspace/datasets/SR/Set14/HR
+      dataroot_lq: /workspace/datasets/SR/Set14/LR_bicubic/X4
+      filename_tmpl: {}x4
+      io_backend:[
+        type: disk
+      ]
+      phase: test
+      scale: 4
+    ]
+    test_3:[
+      name: B100
+      type: PairedImageDataset
+      dataroot_gt: /workspace/datasets/SR/B100/HR
+      dataroot_lq: /workspace/datasets/SR/B100/LR_bicubic/X4
+      filename_tmpl: {}x4
+      io_backend:[
+        type: disk
+      ]
+      phase: test
+      scale: 4
+    ]
+    test_4:[
+      name: Urban100
+      type: PairedImageDataset
+      dataroot_gt: /workspace/datasets/SR/Urban100/HR
+      dataroot_lq: /workspace/datasets/SR/Urban100/LR_bicubic/X4
+      filename_tmpl: {}x4
+      io_backend:[
+        type: disk
+      ]
+      phase: test
+      scale: 4
+    ]
+    test_5:[
+      name: Manga109
+      type: PairedImageDataset
+      dataroot_gt: /workspace/datasets/SR/Manga109/HR
+      dataroot_lq: /workspace/datasets/SR/Manga109/LR_bicubic/X4
+      filename_tmpl: {}_LRBI_x4
+      io_backend:[
+        type: disk
+      ]
+      phase: test
+      scale: 4
+    ]
+  ]
+  network_g:[
+    type: MambaIRv2
+    upscale: 4
+    in_chans: 3
+    img_size: 64
+    img_range: 1.0
+    embed_dim: 174
+    d_state: 16
+    depths: [6, 6, 6, 6, 6, 6]
+    num_heads: [6, 6, 6, 6, 6, 6]
+    window_size: 16
+    inner_rank: 64
+    num_tokens: 128
+    convffn_kernel_size: 5
+    mlp_ratio: 2.0
+    upsampler: pixelshuffle
+    resi_connection: 1conv
+  ]
+  path:[
+    pretrain_network_g: /workspace/experiments/pretrained_models/mambairv2_classicSR_Base_x4.pth
+    strict_load_g: True
+    results_root: /workspace/results/test_MambaIRv2_SRBase_x4
+    log: /workspace/results/test_MambaIRv2_SRBase_x4
+    visualization: /workspace/results/test_MambaIRv2_SRBase_x4/visualization
+  ]
+  val:[
+    save_img: False
+    suffix: None
+    metrics:[
+      psnr:[
+        type: calculate_psnr
+        crop_border: 4
+        test_y_channel: True
+      ]
+      ssim:[
+        type: calculate_ssim
+        crop_border: 4
+        test_y_channel: True
+      ]
+    ]
+  ]
+  dist: False
+  rank: 0
+  world_size: 1
+  auto_resume: False
+  is_train: False
+
+2025-11-13 01:23:24,918 INFO: Dataset [PairedImageDataset] - Set5 is built.
+2025-11-13 01:23:24,920 INFO: Number of test images in Set5: 5
+2025-11-13 01:23:24,968 INFO: Dataset [PairedImageDataset] - Set14 is built.
+2025-11-13 01:23:24,969 INFO: Number of test images in Set14: 14
+2025-11-13 01:23:25,062 INFO: Dataset [PairedImageDataset] - B100 is built.
+2025-11-13 01:23:25,063 INFO: Number of test images in B100: 100
+2025-11-13 01:23:25,143 INFO: Dataset [PairedImageDataset] - Urban100 is built.
+2025-11-13 01:23:25,144 INFO: Number of test images in Urban100: 100
+2025-11-13 01:23:25,262 INFO: Dataset [PairedImageDataset] - Manga109 is built.
+2025-11-13 01:23:25,263 INFO: Number of test images in Manga109: 109
+2025-11-13 01:23:26,943 INFO: Network [MambaIRv2] is created.
+2025-11-13 01:23:44,089 INFO: Network: MambaIRv2, with parameters: 23,050,713
+2025-11-13 01:23:44,092 INFO: MambaIRv2(
+  (conv_first): Conv2d(3, 174, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (patch_embed): PatchEmbed(
+    (norm): LayerNorm((174,), eps=1e-05, elementwise_affine=True)
+  )
+  (patch_unembed): PatchUnEmbed()
+  (layers): ModuleList(
+    (0-5): 6 x ASSB(
+      (patch_embed): PatchEmbed()
+      (patch_unembed): PatchUnEmbed()
+      (residual_group): BasicBlock(
+        dim=174, input_resolution=(64, 64), depth=6
+        (layers): ModuleList(
+          (0-5): 6 x AttentiveLayer(
+            (softmax): Softmax(dim=-1)
+            (lrelu): LeakyReLU(negative_slope=0.01)
+            (sigmoid): Sigmoid()
+            (norm1): LayerNorm((174,), eps=1e-05, elementwise_affine=True)
+            (norm2): LayerNorm((174,), eps=1e-05, elementwise_affine=True)
+            (norm3): LayerNorm((174,), eps=1e-05, elementwise_affine=True)
+            (norm4): LayerNorm((174,), eps=1e-05, elementwise_affine=True)
+            (wqkv): Linear(in_features=174, out_features=522, bias=True)
+            (win_mhsa): WindowAttention(
+              dim=174, window_size=(16, 16), num_heads=6, qkv_bias=True
+              (proj): Linear(in_features=174, out_features=174, bias=True)
+              (softmax): Softmax(dim=-1)
+            )
+            (assm): ASSM(
+              (selectiveScan): Selective_Scan()
+              (out_norm): LayerNorm((348,), eps=1e-05, elementwise_affine=True)
+              (act): SiLU()
+              (out_proj): Linear(in_features=348, out_features=174, bias=True)
+              (in_proj): Sequential(
+                (0): Conv2d(174, 348, kernel_size=(1, 1), stride=(1, 1))
+              )
+              (CPE): Sequential(
+                (0): Conv2d(348, 348, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), groups=348)
+              )
+              (embeddingB): Embedding(128, 64)
+              (route): Sequential(
+                (0): Linear(in_features=174, out_features=58, bias=True)
+                (1): GELU(approximate='none')
+                (2): Linear(in_features=58, out_features=128, bias=True)
+                (3): LogSoftmax(dim=-1)
+              )
+            )
+            (convffn1): ConvFFN(
+              (fc1): Linear(in_features=174, out_features=348, bias=True)
+              (act): GELU(approximate='none')
+              (dwconv): dwconv(
+                (depthwise_conv): Sequential(
+                  (0): Conv2d(348, 348, kernel_size=(5, 5), stride=(1, 1), padding=(2, 2), groups=348)
+                  (1): GELU(approximate='none')
+                )
+              )
+              (fc2): Linear(in_features=348, out_features=174, bias=True)
+            )
+            (convffn2): ConvFFN(
+              (fc1): Linear(in_features=174, out_features=348, bias=True)
+              (act): GELU(approximate='none')
+              (dwconv): dwconv(
+                (depthwise_conv): Sequential(
+                  (0): Conv2d(348, 348, kernel_size=(5, 5), stride=(1, 1), padding=(2, 2), groups=348)
+                  (1): GELU(approximate='none')
+                )
+              )
+              (fc2): Linear(in_features=348, out_features=174, bias=True)
+            )
+            (embeddingA): Embedding(64, 16)
+          )
+        )
+      )
+      (conv): Conv2d(174, 174, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+    )
+  )
+  (norm): LayerNorm((174,), eps=1e-05, elementwise_affine=True)
+  (conv_after_body): Conv2d(174, 174, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  (conv_before_upsample): Sequential(
+    (0): Conv2d(174, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+    (1): LeakyReLU(negative_slope=0.01, inplace=True)
+  )
+  (upsample): Upsample(
+    (0): Conv2d(64, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+    (1): PixelShuffle(upscale_factor=2)
+    (2): Conv2d(64, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+    (3): PixelShuffle(upscale_factor=2)
+  )
+  (conv_last): Conv2d(64, 3, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+)
+2025-11-13 01:23:49,675 INFO: Loading MambaIRv2 model from /workspace/experiments/pretrained_models/mambairv2_classicSR_Base_x4.pth, with param key: [params].
+2025-11-13 01:23:50,167 INFO: Model [MambaIRv2Model] is created.
+2025-11-13 01:23:50,168 INFO: Testing Set5...
+2025-11-13 01:24:20,036 INFO: Validation Set5
+	 # psnr: 33.1456	Best: 33.1456 @ test_MambaIRv2_SRBase_x4 iter
+	 # ssim: 0.9059	Best: 0.9059 @ test_MambaIRv2_SRBase_x4 iter
+
+2025-11-13 01:24:20,037 INFO: Testing Set14...
+2025-11-13 01:24:50,035 INFO: Validation Set14
+	 # psnr: 29.2267	Best: 29.2267 @ test_MambaIRv2_SRBase_x4 iter
+	 # ssim: 0.7974	Best: 0.7974 @ test_MambaIRv2_SRBase_x4 iter
+
+2025-11-13 01:24:50,036 INFO: Testing B100...
+2025-11-13 01:26:47,807 INFO: Validation B100
+	 # psnr: 27.9948	Best: 27.9948 @ test_MambaIRv2_SRBase_x4 iter
+	 # ssim: 0.7511	Best: 0.7511 @ test_MambaIRv2_SRBase_x4 iter
+
+2025-11-13 01:26:47,831 INFO: Testing Urban100...
+2025-11-13 01:39:26,310 INFO: Validation Urban100
+	 # psnr: 27.8976	Best: 27.8976 @ test_MambaIRv2_SRBase_x4 iter
+	 # ssim: 0.8344	Best: 0.8344 @ test_MambaIRv2_SRBase_x4 iter
+
+2025-11-13 01:39:26,330 INFO: Testing Manga109...
+2025-11-13 01:58:47,816 INFO: Validation Manga109
+	 # psnr: 32.5671	Best: 32.5671 @ test_MambaIRv2_SRBase_x4 iter
+	 # ssim: 0.9295	Best: 0.9295 @ test_MambaIRv2_SRBase_x4 iter
+

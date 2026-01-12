@@ -1,0 +1,37 @@
+version: "3.8"
+
+services:
+  mambair:
+    shm_size: "8gb"
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mambair
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    command: sleep infinity
+
+    # GPU reservation (Compose spec)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - PIP_NO_BUILD_ISOLATION=1
+
+
+    # Mount your Windows repo into /workspace
+    volumes:
+      - "E:/HCMUT-year 4 project/ĐACN/MambaIR:/workspace"
+      - conda_envs:/opt/conda/envs
+      - conda_pkgs:/opt/conda/pkgs
+volumes:
+  conda_envs:
+  conda_pkgs:

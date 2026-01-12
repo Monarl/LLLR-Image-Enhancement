@@ -1,0 +1,42 @@
+# general settings
+name: test_single_image
+model_type: MambaIRv2LightModel
+scale: 4
+num_gpu: 1
+manual_seed: 10
+
+datasets:
+  test_1:
+    name: MyImages
+    type: SingleImageDataset
+    dataroot_lq: /workspace/samples/inputs   # Your input images folder
+    io_backend:
+      type: disk
+
+network_g:
+  type: MambaIRv2Light
+  upscale: 4
+  in_chans: 3
+  img_size: 64
+  img_range: 1.
+  embed_dim: 48  
+  d_state: 8
+  depths: [ 5, 5, 5, 5 ]
+  num_heads: [ 4, 4, 4, 4 ]
+  window_size: 16
+  inner_rank: 32
+  num_tokens: 64
+  convffn_kernel_size: 5
+  mlp_ratio: 1.0
+  upsampler: 'pixelshuffledirect'
+  resi_connection: '1conv'
+
+# path
+path:
+  pretrain_network_g: /workspace/experiments/pretrained_models/mambairv2_lightSR_x4.pth
+  strict_load_g: true
+
+# validation settings
+val:
+  save_img: true
+  suffix: ~
