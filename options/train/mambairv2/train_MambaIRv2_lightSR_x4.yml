@@ -25,8 +25,8 @@ datasets:
 
     # data loader
     use_shuffle: true
-    num_worker_per_gpu: 4
-    batch_size_per_gpu: 4
+    num_worker_per_gpu: 8
+    batch_size_per_gpu: 16
     dataset_enlarge_ratio: 100
     prefetch_mode: ~
 
@@ -64,13 +64,13 @@ network_g:
 path:
   pretrain_network_g: ~
   strict_load_g: false
-  resume_state: /workspace/experiments/MambaIRv2_lightSR_x4/training_states/490000.state
+  resume_state: ~
 # training settings
 train:
   optim_g:
     type: Adam
-    lr: !!float 2.5e-5
-    #lr: !!float 1e-4
+    # lr: !!float 2.5e-5
+    lr: !!float 2e-4
     weight_decay: 0
     betas: [0.9, 0.99]
 

@@ -1,5 +1,7 @@
-datasets/
+datasets/**
 __pycache__/
 tb_logger/
-experiments/
+experiments/**
+!experiments/pretrained_models
+!experiments/pretrained_models/**
 samples/
