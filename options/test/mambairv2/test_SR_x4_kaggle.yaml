@@ -1,0 +1,22 @@
+name: My_Inference_Result
+model_type: MambaIRv2Model 
+scale: 4
+num_gpu: 1
+manual_seed: 10
+
+datasets:
+  test_1:
+    name: MyCustomData
+    type: SingleImageDataset 
+    dataroot_lq: /kaggle/working/LLLR-Image-Enhancement/datasets/test_sets/my_test/LR
+    io_backend:
+      type: disk
+
+network_g:
+  type: MambaIRv2
+  upscale: 4
+  in_chans: 3
+
+path:
+  pretrain_network_g: /kaggle/working/LLLR-Image-Enhancement/experiments/pretrained_models/mambairv2_classicSR_Base_x4.pth
+  strict_load_g: true
