@@ -17,18 +17,18 @@ network_g:
   upscale: 4
   in_chans: 3
   img_size: 64
-  img_range: 1.
-  embed_dim: 174
+  img_range: 1.0
+  embed_dim: 174       
   d_state: 16
-  depths: [6, 6, 6,6,6,6]
-  num_heads: [6,6,6,6,6,6]
+  depths: [6, 6, 6, 6, 6, 6]
+  num_heads: [6, 6, 6, 6, 6, 6]
   window_size: 16
   inner_rank: 64
   num_tokens: 128
   convffn_kernel_size: 5
-  mlp_ratio: 2.
-  upsampler: 'pixelshuffle'
-  resi_connection: '1conv'
+  mlp_ratio: 2.0
+  upsampler: pixelshuffle
+  resi_connection: 1conv
 
 path:
   pretrain_network_g: /kaggle/working/LLLR-Image-Enhancement/experiments/pretrained_models/mambairv2_classicSR_Base_x4.pth
