@@ -30,6 +30,10 @@ network_g:
   upsampler: pixelshuffle
   resi_connection: 1conv
 
+val:
+  save_img: true
+  suffix: ~
+
 path:
   pretrain_network_g: /kaggle/working/LLLR-Image-Enhancement/experiments/pretrained_models/mambairv2_classicSR_Base_x4.pth
   strict_load_g: true
