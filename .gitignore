@@ -5,3 +5,4 @@ experiments/**
 !experiments/pretrained_models
 !experiments/pretrained_models/**
 samples/
+learning_docs/
