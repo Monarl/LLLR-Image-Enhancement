@@ -30,6 +30,7 @@ services:
     # Mount your Windows repo into /workspace
     volumes:
       - "E:/HCMUT-year 4 project/ĐACN/MambaIR:/workspace"
+      - "E:/HCMUT-year 4 project/ĐACN/UltraIS-main:/workspace/UltraIS-main"
       - conda_envs:/opt/conda/envs
       - conda_pkgs:/opt/conda/pkgs
 volumes:
