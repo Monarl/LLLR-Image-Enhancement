@@ -2,18 +2,15 @@
 Illumination Guidance Module (IGM) for MambaIRv2-Enhanced Low-Light Super-Resolution
 
 Adapted from UltraIS paper implementation to work with MambaIRv2 architecture.
+
 This module implements:
-1. Grayscale conversion from RGB
-2. Structure Expansion A(L_g) via max-pooling
-3. Edge Preservation B(L_g) via local gradients  
-4. Illumination Estimation Network (IENet) - lightweight U-Net
-5. Multi-scale feature extraction I_f^(k)
+1. Illumination Estimation Network (IENet) - lightweight U-Net
+2. Multi-scale feature extraction I_f^(k)
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 from typing import List, Tuple
 
 
@@ -130,133 +127,16 @@ class RCBup(nn.Module):
         return res
 
 
-class IlluminationGuidance(nn.Module): # Might put this into pair_image_dataset.py
-    """
-    Illumination Guidance preprocessing module.
-    
-    Implements:
-    - RGB to grayscale conversion 
-    - Structure Expansion A(L_g): Max-pooling operations (horizontal & vertical)
-    - Edge Preservation B(L_g): Local gradient differences 
-    - IG(L_g) = A(L_g) + B(L_g)
-    """
-    
-    def __init__(self):
-        super(IlluminationGuidance, self).__init__()
-    
-    def rgb_to_grayscale(self, img_rgb: torch.Tensor) -> torch.Tensor:
-        """
-        Convert RGB to grayscale using standard weights.
-        
-        Args:
-            img_rgb: RGB image tensor [B, 3, H, W] in range [0, 1]
-            
-        Returns:
-            Grayscale tensor [B, 1, H, W]
-        """
-        r, g, b = img_rgb[:, 0:1] + 1, img_rgb[:, 1:2] + 1, img_rgb[:, 2:3] + 1
-        A_gray = 1. - (0.299 * r + 0.587 * g + 0.114 * b) / 2.
-        return A_gray
-    
-    def structure_expansion_A(self, L_g: torch.Tensor) -> torch.Tensor:
-        """
-        Structure Expansion A(L_g): Max-pooling strategy on local neighborhoods.
-        
-        Enlarges pixel distribution of bright regions and suppresses dark noise.
-        
-        Args:
-            L_g: Grayscale tensor [B, 1, H, W]
-            
-        Returns:
-            Structure expanded tensor [B, 1, H, W]
-        """
-        # Convert to numpy for max operations as in original UltraIS
-        img = L_g.float().cpu().numpy()
-        
-        # Horizontal max operation
-        x = np.maximum(img[:, :, :-1, :], img[:, :, 1:, :])  # Adjacent pixels max
-        x = np.concatenate((x, np.expand_dims(img[:, :, -1, :], 2)), 2)  # Restore last row
-        
-        # Vertical max operation  
-        y = np.maximum(x[:, :, :, :-1], x[:, :, :, 1:])  # Adjacent pixels max
-        y = np.concatenate((y, np.expand_dims(x[:, :, :, -1], 3)), 3)  # Restore last column
-        
-        return torch.from_numpy(y).to(L_g.device)
-    
-    def edge_preservation_B(self, L_g: torch.Tensor) -> torch.Tensor:
-        """
-        Edge Preservation B(L_g): Local gradient differences.
-        
-        Captures high-frequency edge information and texture boundaries.
-        
-        Args:
-            L_g: Grayscale tensor [B, 1, H, W]
-            
-        Returns:
-            Edge preserved tensor [B, 1, H, W]  
-        """
-        # Convert to numpy for gradient operations as in original UltraIS
-        img = L_g.float().cpu().numpy()
-
-        # Horizontal gradients
-        x1 = img[:, :, :-1, :] - img[:, :, 1:, :]  # Forward difference
-        x1 = np.concatenate((x1, np.expand_dims(img[:, :, -1, :], 2)), 2)
-
-        x2 = img[:, :, 1:, :] - img[:, :, :-1, :]  # Backward difference  
-        x2 = np.concatenate((np.expand_dims(img[:, :, 0, :], 2), x2), 2)
-
-        # Vertical gradients
-        y1 = img[:, :, :, :-1] - img[:, :, :, 1:]  # Forward difference
-        y1 = np.concatenate((y1, np.expand_dims(img[:, :, :, -1], 3)), 3)
-
-        y2 = img[:, :, :, 1:] - img[:, :, :, :-1]  # Backward difference
-        y2 = np.concatenate((np.expand_dims(img[:, :, :, 0], 3), y2), 3)
-
-        # Average absolute gradients
-        img = (np.abs(x1) + np.abs(x2) + np.abs(y1) + np.abs(y2)) / 4.0
-
-        return torch.from_numpy(img).to(L_g.device)
-    
-    def forward(self, img_rgb: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Forward pass of IlluminationGuidance.
-        
-        Args:
-            img_rgb: RGB image [B, 3, H, W]
-            
-        Returns:
-            Tuple of:
-            - L_g: Grayscale image [B, 1, H, W] 
-            - IG: Illumination guidance map [B, 2, H, W] = [A(L_g) + B(L_g), L_g]
-        """
-        # Step 1: RGB to grayscale
-        L_g = self.rgb_to_grayscale(img_rgb)
-        
-        # Step 2: Structure expansion A(L_g) 
-        A_Lg = self.structure_expansion_A(L_g)
-        
-        # Step 3: Edge preservation B(L_g)
-        B_Lg = self.edge_preservation_B(L_g)
-        
-        # Step 4: Combine guidance
-        guidance = A_Lg + B_Lg
-        
-        # Step 5: Concatenate guidance and grayscale as 2-channel input for IENet
-        IG = torch.cat([guidance, L_g], dim=1)  # [B, 2, H, W]
-        
-        return L_g, IG
-
-
 class IENet(nn.Module):
     """
     Illumination Estimation Network (IENet) - Lightweight U-Net.
     
-    Takes 2-channel input: [guidance, grayscale] and outputs multi-scale illumination features.
-    Fixed to 12-channel architecture for lightweight processing.
+    Takes 2-channel input: [guidance, grayscale] and 
+    outputs multi-scale illumination features.
     """
     
     def __init__(self, inp_channels: int = 2, out_channels: int = 1, 
-                 n_feat: int = 64, scale: int = 1, bias: bool = False):
+                 n_feat: int = 48, scale: int = 1, bias: bool = False):
         super(IENet, self).__init__()
         
         self.scale = scale
@@ -374,70 +254,115 @@ class IGMModule(nn.Module):
     """
     Complete Illumination Guidance Module (IGM).
     
-    Combines IlluminationGuidance preprocessing with IENet to produce:
+    Takes precomputed 2-channel illumination guidance [guidance, grayscale]
+    (computed in paired_image_dataset.py) and produces:
     1. Multi-scale illumination features I_f^(k) for ISDM-lite modulation
     2. Final illumination map for potential supervision
     """
     
-    def __init__(self, n_feat: int = 64, scale: int = 1, bias: bool = False):
+    def __init__(self, n_feat: int = 48, scale: int = 1, bias: bool = False):
         super(IGMModule, self).__init__()
         
-        self.illumination_guidance = IlluminationGuidance()
         self.ienet = IENet(inp_channels=2, out_channels=1, n_feat=n_feat, scale=scale, bias=bias)
         
-    def forward(self, img_rgb: torch.Tensor) -> Tuple[List[torch.Tensor], torch.Tensor, torch.Tensor]:
+    def forward(self, gray: torch.Tensor) -> Tuple[List[torch.Tensor], torch.Tensor]:
         """
         Forward pass of complete IGM.
         
         Args:
-            img_rgb: Input RGB low-light image [B, 3, H, W]
+            gray: Precomputed 2-channel illumination guidance [B, 2, H, W]
+                  Channel 0: IG(L_g) = A(L_g) + B(L_g) (guidance)
+                  Channel 1: L_g (grayscale)
+                  Computed in paired_image_dataset.py
             
         Returns:
             Tuple of:
             - I_fk_list: Multi-scale illumination features for ISDM-lite [5 tensors]
-            - illumination_map: Final illumination estimate [B, 1, H, W] 
-            - L_g: Grayscale version [B, 1, H, W]
+            - illumination_map: Final illumination estimate [B, 1, H, W]
         """
-        # Step 1: Generate illumination guidance
-        L_g, IG = self.illumination_guidance(img_rgb)
+        I_fk_list, illumination_map = self.ienet(gray)
         
-        # Step 2: Extract multi-scale illumination features
-        I_fk_list, illumination_map = self.ienet(IG)
-        
-        return I_fk_list, illumination_map, L_g
+        return I_fk_list, illumination_map
 
 
 if __name__ == "__main__":
     # Unit test
     import torch
+    import numpy as np
     
-    # Test IlluminationGuidance
-    print("Testing IlluminationGuidance...")
-    ig = IlluminationGuidance()
+    def max_operation(img):
+        """Structure Expansion A(L_g) - same as in paired_image_dataset.py"""
+        img_np = img.float().numpy()
+        x = np.maximum(img_np[:, :, :-1, :], img_np[:, :, 1:, :])
+        x = np.concatenate((x, np.expand_dims(img_np[:, :, -1, :], 2)), 2)
+        y = np.maximum(x[:, :, :, :-1], x[:, :, :, 1:])
+        y = np.concatenate((y, np.expand_dims(x[:, :, :, -1], 3)), 3)
+        return torch.from_numpy(y)
+
+    def edge_operation(img):
+        """Edge Preservation B(L_g) - same as in paired_image_dataset.py"""
+        img_np = img.float().numpy()
+        x1 = img_np[:, :, :-1, :] - img_np[:, :, 1:, :]
+        x1 = np.concatenate((x1, np.expand_dims(img_np[:, :, -1, :], 2)), 2)
+        x2 = img_np[:, :, 1:, :] - img_np[:, :, :-1, :]
+        x2 = np.concatenate((np.expand_dims(img_np[:, :, 0, :], 2), x2), 2)
+        y1 = img_np[:, :, :, :-1] - img_np[:, :, :, 1:]
+        y1 = np.concatenate((y1, np.expand_dims(img_np[:, :, :, -1], 3)), 3)
+        y2 = img_np[:, :, :, 1:] - img_np[:, :, :, :-1]
+        y2 = np.concatenate((np.expand_dims(img_np[:, :, :, 0], 3), y2), 3)
+        img_np = (np.abs(x1) + np.abs(x2) + np.abs(y1) + np.abs(y2)) / 4.0
+        return torch.from_numpy(img_np)
+
+    def simulate_dataset_preprocessing(img_lq):
+        """Simulates paired_image_dataset.py illumination guidance preprocessing.
+        
+        Note: In the actual dataset, img_lq is [C, H, W] (single image, no batch dim).
+        Here we accept [1, C, H, W] for convenience and return [2, H, W].
+        """
+        # Remove batch dim to match dataset behavior (dataset works per-image)
+        img_lq = img_lq.squeeze(0)  # [C, H, W]
+        r, g, b = img_lq[0] + 1, img_lq[1] + 1, img_lq[2] + 1
+        A_gray = 1. - (0.299 * r + 0.587 * g + 0.114 * b) / 2.
+        A_gray = torch.unsqueeze(A_gray, 0)  # [1, H, W]
+        A_gray = torch.unsqueeze(A_gray, 0)  # [1, 1, H, W]
+        max_out = max_operation(A_gray)
+        edge_out = edge_operation(A_gray)
+        guidance = max_out + edge_out
+        gray = torch.cat([guidance, A_gray], 1).squeeze(0)  # [2, H, W]
+        return gray
+
+    # Test dataset preprocessing simulation
+    print("Testing dataset preprocessing simulation...")
     x = torch.randn(2, 3, 64, 64)  # Batch of 2, RGB, 64x64
-    L_g, IG = ig(x)
+    # Simulate per-image preprocessing as dataset would do
+    gray_list = [simulate_dataset_preprocessing(x[i:i+1]) for i in range(x.shape[0])]
+    gray = torch.stack(gray_list)  # [B, 2, H, W]
     print(f"Input shape: {x.shape}")
-    print(f"Grayscale shape: {L_g.shape}")
-    print(f"Illumination Guidance shape: {IG.shape}")
-    assert IG.shape == (2, 2, 64, 64), f"Expected IG shape (2, 2, 64, 64), got {IG.shape}"
+    print(f"Illumination Guidance (gray) shape: {gray.shape}")
+    assert gray.shape == (2, 2, 64, 64), f"Expected gray shape (2, 2, 64, 64), got {gray.shape}"
     
-    # Test IENet
-    print("\nTesting IENet...")
-    ienet = IENet(n_feat=64)
-    I_fk_list, ill_map = ienet(IG)
+    # Test IENet with n_feat=48
+    print("\nTesting IENet (n_feat=48)...")
+    ienet = IENet(n_feat=48)
+    I_fk_list, ill_map = ienet(gray)
     print(f"Number of multi-scale features: {len(I_fk_list)}")
     for i, feat in enumerate(I_fk_list):
         print(f"Feature {i+1} shape: {feat.shape}")
     print(f"Illumination map shape: {ill_map.shape}")
     assert len(I_fk_list) == 5, f"Expected 5 features, got {len(I_fk_list)}"
     assert ill_map.shape == (2, 1, 64, 64), f"Expected illumination map shape (2, 1, 64, 64), got {ill_map.shape}"
+    # Verify all features have 48 channels (matching embed_dim)
+    for i, feat in enumerate(I_fk_list):
+        assert feat.shape[1] == 48, f"Feature {i+1} has {feat.shape[1]} channels, expected 48"
+    print("All features have 48 channels - matches MambaIRv2 embed_dim!")
     
-    # Test complete IGMModule
-    print("\nTesting complete IGMModule...")
-    igm = IGMModule(n_feat=64, scale=4)
-    I_fk_list, ill_map, L_g = igm(x)
+    # Test complete IGMModule with n_feat=48
+    print("\nTesting complete IGMModule (n_feat=48)...")
+    igm = IGMModule(n_feat=48, scale=4)
+    I_fk_list, ill_map = igm(gray)
     print(f"IGM Multi-scale features: {len(I_fk_list)}")
     print(f"IGM Illumination map shape: {ill_map.shape}")
-    print(f"IGM Grayscale shape: {L_g.shape}")
     
-    print("\n✅ All tests passed! IGM module is ready for integration.")
+    print("\n All tests passed! IGM module is ready for integration.")
+    print("  - Preprocessing moved to paired_image_dataset.py")
+    print("  - IENet n_feat=48 matches MambaIRv2 embed_dim (no channel adaptation needed)")

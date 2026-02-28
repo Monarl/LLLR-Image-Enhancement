@@ -8,6 +8,7 @@ from basicsr.utils.matlab_functions import rgb2ycbcr
 from basicsr.utils.registry import DATASET_REGISTRY
 
 import numpy as np
+import torch
 
 @DATASET_REGISTRY.register()
 class PairedImageDataset(data.Dataset):
@@ -38,6 +39,59 @@ class PairedImageDataset(data.Dataset):
             scale (bool): Scale, which will be added automatically.
             phase (str): 'train' or 'val'.
     """
+
+    def max_operation(self, img):
+        """Structure Expansion A(L_g): max-pooling on local neighborhoods.
+        
+        Enlarges pixel distribution of bright regions and suppresses dark noise.
+        Adapted from UltraIS paired_image_dataset.py.
+        
+        Args:
+            img: Grayscale tensor [1, 1, H, W]
+            
+        Returns:
+            Structure expanded tensor [1, 1, H, W]
+        """
+        img = img.float().numpy()
+        x = np.maximum(img[:, :, :-1, :], img[:, :, 1:, :])
+        x = np.concatenate((x, np.expand_dims(img[:, :, -1, :], 2)), 2)
+
+        y = np.maximum(x[:, :, :, :-1], x[:, :, :, 1:])
+        y = np.concatenate((y, np.expand_dims(x[:, :, :, -1], 3)), 3)
+
+        y = torch.from_numpy(y)
+        return y
+
+    def edge_operation(self, img):
+        """Edge Preservation B(L_g): local gradient differences.
+        
+        Captures high-frequency edge information and texture boundaries.
+        Adapted from UltraIS paired_image_dataset.py.
+        
+        Args:
+            img: Grayscale tensor [1, 1, H, W]
+            
+        Returns:
+            Edge preserved tensor [1, 1, H, W]
+        """
+        img = img.float().numpy()
+
+        x1 = img[:, :, :-1, :] - img[:, :, 1:, :]
+        x1 = np.concatenate((x1, np.expand_dims(img[:, :, -1, :], 2)), 2)
+
+        x2 = img[:, :, 1:, :] - img[:, :, :-1, :]
+        x2 = np.concatenate((np.expand_dims(img[:, :, 0, :], 2), x2), 2)
+
+        y1 = img[:, :, :, :-1] - img[:, :, :, 1:]
+        y1 = np.concatenate((y1, np.expand_dims(img[:, :, :, -1], 3)), 3)
+
+        y2 = img[:, :, :, 1:] - img[:, :, :, :-1]
+        y2 = np.concatenate((np.expand_dims(img[:, :, :, 0], 3), y2), 3)
+
+        img = (np.abs(x1) + np.abs(x2) + np.abs(y1) + np.abs(y2)) / 4.0
+
+        y = torch.from_numpy(img)
+        return y
 
     def __init__(self, opt):
         super(PairedImageDataset, self).__init__()
@@ -144,6 +198,25 @@ class PairedImageDataset(data.Dataset):
         if self.mean is not None or self.std is not None:
             normalize(img_lq, self.mean, self.std, inplace=True)
             normalize(img_gt, self.mean, self.std, inplace=True)
+
+        # Illumination guidance preprocessing (adapted from UltraIS)
+        # Computes IG(L_g) = A(L_g) + B(L_g) at data loading time
+        if self.opt.get('use_illguidance', True):
+            r, g, b = img_lq[0] + 1, img_lq[1] + 1, img_lq[2] + 1
+            A_gray = 1. - (0.299 * r + 0.587 * g + 0.114 * b) / 2.
+            A_gray = torch.unsqueeze(A_gray, 0)  # [1, H, W]
+            A_gray = torch.unsqueeze(A_gray, 0)  # [1, 1, H, W]
+            max_out = self.max_operation(A_gray)
+            edge_out = self.edge_operation(A_gray)
+            guidance = max_out + edge_out
+            A_gray = torch.cat([guidance, A_gray], 1).squeeze(0)  # [2, H, W]
+            return {
+                'lq': img_lq,
+                'gt': img_gt,
+                'gray': A_gray,
+                'lq_path': lq_path,
+                'gt_path': gt_path
+            }
 
         return {'lq': img_lq, 'gt': img_gt, 'lq_path': lq_path, 'gt_path': gt_path}
 
