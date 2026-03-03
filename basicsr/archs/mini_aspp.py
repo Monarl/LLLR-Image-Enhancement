@@ -160,118 +160,42 @@ class MiniASPP(nn.Module):
         return flops_b1 + flops_b2 + flops_b3 + flops_fusion
 
 
-class MultiStageMiniASPP(nn.Module):
-    """
-    Multi-stage Mini-ASPP for extracting semantic features at each ASSG block.
+# ---------------------------------------------------------------------------
+#  Factory: create nn.ModuleList of MiniASPP for N ASSG stages
+# ---------------------------------------------------------------------------
 
-    Creates one MiniASPP instance per ASSG stage, producing S_fk features
-    that are paired with corresponding I_fk from IGM for ISDM-lite modulation.
+def create_mini_aspp_stages(
+    num_stages: int,
+    in_channels: int,
+    out_channels: Optional[int] = None,
+    dilations: Tuple[int, int] = (2, 4),
+    bias: bool = False,
+) -> nn.ModuleList:
+    """
+    Create an nn.ModuleList of independent MiniASPP instances, one per ASSG stage.
+
+    Usage in MambaIRv2 forward_features():
+        self.mini_aspp_list = create_mini_aspp_stages(num_stages=4, in_channels=48)
+        ...
+        for k, layer in enumerate(self.layers):
+            x = layer(x, x_size, params)
+            x_2d = x.transpose(1, 2).view(B, C, H, W)
+            s_fk = self.mini_aspp_list[k](x_2d)  # [B, 48, H, W]
 
     Args:
-        num_stages (int): Number of ASSG stages (len(depths) in MambaIRv2).
-        in_channels (int): Input channels per stage (embed_dim from MambaIRv2).
-        out_channels (int, optional): Output channels per stage. Defaults to in_channels.
-        dilations (tuple): Dilation rates for branches 2 and 3. Default: (2, 4).
-        shared_weights (bool): If True, share a single MiniASPP across all stages. Default: False.
-        bias (bool): Whether to use bias in convolution layers. Default: False.
+        num_stages: Number of ASSG stages (len(depths) in MambaIRv2).
+        in_channels: Input channels per stage (embed_dim).
+        out_channels: Output channels per stage. Defaults to in_channels.
+        dilations: Dilation rates for branches 2 and 3.
+        bias: Whether to use bias in convolutions.
 
-    Example:
-        >>> ms_aspp = MultiStageMiniASPP(num_stages=4, in_channels=48)
-        >>> # Simulate ASSG block outputs (all same spatial resolution)
-        >>> r_fk_list = [torch.randn(2, 48, 64, 64) for _ in range(4)]
-        >>> s_fk_list = ms_aspp(r_fk_list)
-        >>> for i, s in enumerate(s_fk_list):
-        ...     print(f"S_f^({i+1}) shape: {s.shape}")
+    Returns:
+        nn.ModuleList of MiniASPP instances.
     """
-
-    def __init__(
-        self,
-        num_stages: int,
-        in_channels: int,
-        out_channels: Optional[int] = None,
-        dilations: Tuple[int, int] = (2, 4),
-        shared_weights: bool = False,
-        bias: bool = False,
-    ):
-        super(MultiStageMiniASPP, self).__init__()
-
-        if out_channels is None:
-            out_channels = in_channels
-
-        self.num_stages = num_stages
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.shared_weights = shared_weights
-
-        if shared_weights:
-            # Single Mini-ASPP shared across all stages
-            self.aspp = MiniASPP(in_channels, out_channels, dilations, bias)
-        else:
-            # Independent Mini-ASPP per stage
-            self.aspp_stages = nn.ModuleList([
-                MiniASPP(in_channels, out_channels, dilations, bias)
-                for _ in range(num_stages)
-            ])
-
-    def forward_single(self, x: torch.Tensor, stage_idx: int) -> torch.Tensor:
-        """
-        Apply Mini-ASPP for a single stage.
-
-        Args:
-            x: Feature tensor [B, in_channels, H, W] from ASSG block k.
-            stage_idx: Index of the ASSG stage (0-indexed).
-
-        Returns:
-            Semantic feature tensor [B, out_channels, H, W] (S_fk).
-        """
-        if self.shared_weights:
-            return self.aspp(x)
-        else:
-            return self.aspp_stages[stage_idx](x)
-
-    def forward(self, r_fk_list: list) -> list:
-        """
-        Apply Mini-ASPP to all stages (not used due to ASSG run sequentially).
-
-        Args:
-            r_fk_list: List of feature tensors from each ASSG block.
-                Each tensor has shape [B, in_channels, H, W].
-
-        Returns:
-            List of semantic feature tensors S_fk, one per stage.
-                Each tensor has shape [B, out_channels, H, W].
-        """
-        assert len(r_fk_list) == self.num_stages, \
-            f"Expected {self.num_stages} features, got {len(r_fk_list)}"
-
-        s_fk_list = []
-        for k, r_fk in enumerate(r_fk_list):
-            s_fk = self.forward_single(r_fk, k)
-            s_fk_list.append(s_fk)
-
-        return s_fk_list
-
-    def count_params(self) -> int:
-        """Count total trainable parameters."""
-        return sum(p.numel() for p in self.parameters() if p.requires_grad)
-
-    def count_flops(self, input_resolution: Tuple[int, int]) -> float:
-        """
-        Estimate total FLOPs for all stages.
-
-        Args:
-            input_resolution: (H, W) spatial dimensions.
-
-        Returns:
-            Total approximate FLOPs across all stages.
-        """
-        if self.shared_weights:
-            return self.aspp.count_flops(input_resolution) * self.num_stages
-        else:
-            return sum(
-                aspp.count_flops(input_resolution)
-                for aspp in self.aspp_stages
-            )
+    return nn.ModuleList([
+        MiniASPP(in_channels, out_channels, dilations, bias)
+        for _ in range(num_stages)
+    ])
 
 
 if __name__ == "__main__":
@@ -304,27 +228,26 @@ if __name__ == "__main__":
     assert s_fk2.shape == (2, 64, 64, 64), f"Shape mismatch: {s_fk2.shape}"
     print("PASSED")
 
-    # Test 3: MultiStageMiniASPP
-    print("\n--- Test 3: MultiStageMiniASPP (4 stages) ---")
-    ms_aspp = MultiStageMiniASPP(num_stages=4, in_channels=48)
-    r_fk_list = [torch.randn(2, 48, 64, 64) for _ in range(4)]
-    s_fk_list = ms_aspp(r_fk_list)
-    print(f"Number of stages: {len(s_fk_list)}")
-    for i, s in enumerate(s_fk_list):
-        print(f"  S_f^({i+1}) shape: {s.shape}")
-        assert s.shape == (2, 48, 64, 64), f"Stage {i} shape mismatch: {s.shape}"
-    print(f"Total parameters: {ms_aspp.count_params():,}")
-    print(f"Total FLOPs (64x64): {ms_aspp.count_flops((64, 64)):,.0f}")
+    # Test 3: create_mini_aspp_stages factory
+    print("\n--- Test 3: create_mini_aspp_stages (4 stages) ---")
+    aspp_stages = create_mini_aspp_stages(num_stages=4, in_channels=48)
+    print(f"Number of stages: {len(aspp_stages)}")
+    total_params = sum(p.numel() for p in aspp_stages.parameters() if p.requires_grad)
+    for k in range(4):
+        r_fk = torch.randn(2, 48, 64, 64)
+        s_fk = aspp_stages[k](r_fk)
+        print(f"  Stage {k}: {s_fk.shape}")
+        assert s_fk.shape == (2, 48, 64, 64), f"Stage {k} shape mismatch: {s_fk.shape}"
+    print(f"Total parameters: {total_params:,}")
     print("PASSED")
 
-    # Test 4: Shared weights MultiStageMiniASPP
-    print("\n--- Test 4: MultiStageMiniASPP (shared weights) ---")
-    ms_aspp_shared = MultiStageMiniASPP(num_stages=4, in_channels=48, shared_weights=True)
-    s_fk_shared = ms_aspp_shared(r_fk_list)
-    print(f"Total parameters (shared): {ms_aspp_shared.count_params():,}")
-    print(f"Total parameters (independent): {ms_aspp.count_params():,}")
-    assert ms_aspp_shared.count_params() < ms_aspp.count_params(), \
-        "Shared should have fewer params"
+    # Test 4: Independent weights verification
+    print("\n--- Test 4: Independent weights (stages don't share) ---")
+    aspp_stages2 = create_mini_aspp_stages(num_stages=4, in_channels=48)
+    for k in range(1, 4):
+        assert aspp_stages2[k] is not aspp_stages2[0], \
+            f"Stage {k} should not be same object as stage 0"
+    print("All stages are independent instances")
     print("PASSED")
 
     # Test 5: Gradient flow
@@ -354,11 +277,11 @@ if __name__ == "__main__":
     # Test 7: Parameter comparison with HRNet
     print("\n--- Test 7: Parameter Count Comparison ---")
     hrnet_params = 40_000_000  # ~40M for HRNet-W48
-    ms_params = ms_aspp.count_params()
+    ms_params = total_params
     ratio = hrnet_params / ms_params
-    print(f"HRNet-W48 params:      ~{hrnet_params:>12,}")
-    print(f"MultiStageMiniASPP:     {ms_params:>12,}")
-    print(f"Reduction ratio:        {ratio:>12.1f}x lighter")
+    print(f"HRNet-W48 params:         ~{hrnet_params:>12,}")
+    print(f"MiniASPP (4 stages):       {ms_params:>12,}")
+    print(f"Reduction ratio:           {ratio:>12.1f}x lighter")
     assert ms_params < 1_000_000, \
         f"Mini-ASPP should be < 1M params, got {ms_params:,}"
     print("PASSED (< 1M params)")
