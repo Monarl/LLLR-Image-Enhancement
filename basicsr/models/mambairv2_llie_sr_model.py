@@ -5,12 +5,14 @@ Training/testing logic for the joint Low-Light Image Enhancement and
 Super-Resolution model. Extends the base SRModel to handle:
   - Illumination guidance ('gray') from the dataset
   - Passing gray to the network alongside LQ input
+  - Multiple losses: L1 + Perceptual + SSIM + Illumination + TV
 """
 
 import torch
 import torch.nn.utils as nn_utils
 from collections import OrderedDict
 
+from basicsr.losses import build_loss
 from basicsr.utils import get_root_logger
 from basicsr.utils.registry import MODEL_REGISTRY
 from basicsr.models.sr_model import SRModel
@@ -23,7 +25,34 @@ class MambaIRv2LLIESRModel(SRModel):
     Extends SRModel to:
       1. Load illumination guidance ('gray') from dataset in feed_data()
       2. Pass gray to network in optimize_parameters() and test()
+      3. Use multi-loss training: L1 + Perceptual + SSIM + Illumination + TV
     """
+
+    def init_training_settings(self):
+        """Override to add SSIM, Illumination, and TV losses."""
+        # Call parent to set up pixel_opt, perceptual_opt, optimizer, scheduler
+        super().init_training_settings()
+
+        train_opt = self.opt['train']
+
+        # SSIM loss
+        if train_opt.get('ssim_opt'):
+            self.cri_ssim = build_loss(train_opt['ssim_opt']).to(self.device)
+        else:
+            self.cri_ssim = None
+
+        # Illumination loss (Y-channel L1)
+        if train_opt.get('illumination_opt'):
+            self.cri_illumination = build_loss(
+                train_opt['illumination_opt']).to(self.device)
+        else:
+            self.cri_illumination = None
+
+        # Total Variation loss
+        if train_opt.get('tv_opt'):
+            self.cri_tv = build_loss(train_opt['tv_opt']).to(self.device)
+        else:
+            self.cri_tv = None
 
     def feed_data(self, data):
         """Load LQ, GT, and illumination guidance from data dict."""
@@ -38,7 +67,7 @@ class MambaIRv2LLIESRModel(SRModel):
             self.gray = None  # Architecture will compute internally
 
     def optimize_parameters(self, current_iter):
-        """Forward + backward with illumination guidance."""
+        """Forward + backward with illumination guidance and multi-loss."""
         logger = get_root_logger()
         self.optimizer_g.zero_grad()
 
@@ -56,7 +85,7 @@ class MambaIRv2LLIESRModel(SRModel):
         l_total = 0
         loss_dict = OrderedDict()
 
-        # Pixel loss (L1)
+        # --- Loss 1: Pixel loss (L_rec = ||pred - gt||_1) ---
         if self.cri_pix:
             l_pix = self.cri_pix(self.output, self.gt)
             if torch.isnan(l_pix) or torch.isinf(l_pix):
@@ -68,7 +97,7 @@ class MambaIRv2LLIESRModel(SRModel):
             l_total += l_pix
             loss_dict['l_pix'] = l_pix
 
-        # Perceptual loss
+        # --- Loss 2: Perceptual loss (L_perc = VGG feature L1) ---
         if self.cri_perceptual:
             l_percep, l_style = self.cri_perceptual(self.output, self.gt)
             if l_percep is not None:
@@ -89,6 +118,42 @@ class MambaIRv2LLIESRModel(SRModel):
                     return
                 l_total += l_style
                 loss_dict['l_style'] = l_style
+
+        # --- Loss 3: SSIM loss (L_ssim = 1 - SSIM(pred, gt)) ---
+        if self.cri_ssim:
+            l_ssim = self.cri_ssim(self.output, self.gt)
+            if torch.isnan(l_ssim) or torch.isinf(l_ssim):
+                logger.warning(
+                    f'[Iter {current_iter}] NaN/Inf in SSIM loss. '
+                    f'Skipping batch.'
+                )
+                return
+            l_total += l_ssim
+            loss_dict['l_ssim'] = l_ssim
+
+        # --- Loss 4: Illumination loss (L_light = ||Y(pred) - Y(gt)||_1) ---
+        if self.cri_illumination:
+            l_light = self.cri_illumination(self.output, self.gt)
+            if torch.isnan(l_light) or torch.isinf(l_light):
+                logger.warning(
+                    f'[Iter {current_iter}] NaN/Inf in illumination loss. '
+                    f'Skipping batch.'
+                )
+                return
+            l_total += l_light
+            loss_dict['l_light'] = l_light
+
+        # --- Loss 5: Total Variation loss (L_tv for spatial smoothness) ---
+        if self.cri_tv:
+            l_tv = self.cri_tv(self.output)
+            if torch.isnan(l_tv) or torch.isinf(l_tv):
+                logger.warning(
+                    f'[Iter {current_iter}] NaN/Inf in TV loss. '
+                    f'Skipping batch.'
+                )
+                return
+            l_total += l_tv
+            loss_dict['l_tv'] = l_tv
 
         # Backward
         l_total.backward()

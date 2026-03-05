@@ -4,5 +4,8 @@ tb_logger/
 experiments/**
 !experiments/pretrained_models
 !experiments/pretrained_models/**
+experiments/pretrained_models/vgg19-dcbb9e9d.pth
+test_*
+tmp*
 samples/
 learning_docs/

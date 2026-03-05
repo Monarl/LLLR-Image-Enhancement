@@ -99,11 +99,50 @@ train:
   total_iter: 500000
   warmup_iter: -1
 
-  # Losses (Step 5: L1 only; Step 6 will add illumination/perceptual/SSIM/TV)
+  # ---------------------------------------------------------------------------
+  # Loss Functions
+  # L_total = L_rec + λ_perc*L_perc + λ_ssim*L_ssim + λ_light*L_light + λ_tv*L_tv
+  # ---------------------------------------------------------------------------
+
+  # Loss 1: Pixel loss (L_rec = ||pred - gt||_1)
   pixel_opt:
     type: L1Loss
     loss_weight: 1.0
     reduction: mean
+
+  # Loss 2: Perceptual loss (VGG19 feature matching)
+  # Weights from UltraIS: conv1_2=0.1, conv2_2=0.1, conv3_4=1, conv4_4=1, conv5_4=1
+  # perceptual_opt:
+  #   type: PerceptualLoss
+  #   layer_weights:
+  #     'conv1_2': 0.1
+  #     'conv2_2': 0.1
+  #     'conv3_4': 1
+  #     'conv4_4': 1
+  #     'conv5_4': 1
+  #   vgg_type: vgg19
+  #   use_input_norm: true
+  #   perceptual_weight: !!float 1.0
+  #   style_weight: 0
+  #   range_norm: false
+  #   criterion: l1
+
+  # # Loss 3: SSIM loss (L_ssim = 1 - SSIM(pred, gt))
+  # ssim_opt:
+  #   type: SSIMLoss
+  #   window_size: 11
+  #   loss_weight: !!float 0.1
+
+  # # Loss 4: Illumination loss (L_light = ||Y(pred) - Y(gt)||_1)
+  # illumination_opt:
+  #   type: IlluminationLoss
+  #   loss_weight: !!float 1.0
+  #   reduction: mean
+
+  # # Loss 5: Total Variation loss (L_tv for spatial smoothness)
+  # tv_opt:
+  #   type: TotalVariationLoss
+  #   loss_weight: !!float 0.01
 
 # -----------------------------------------------------------------------------
 # Validation Settings
