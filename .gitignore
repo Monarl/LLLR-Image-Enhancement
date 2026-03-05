@@ -1,11 +1,13 @@
 datasets/**
+!datasets/RELLISUR-Dataset/
+!datasets/RELLISUR-Dataset/meta*.txt
 __pycache__/
 tb_logger/
 experiments/**
 !experiments/pretrained_models
 !experiments/pretrained_models/**
 experiments/pretrained_models/vgg19-dcbb9e9d.pth
-test_*
+test_*.py
 tmp*
 samples/
 learning_docs/

@@ -9,6 +9,7 @@ Super-Resolution model. Extends the base SRModel to handle:
 """
 
 import torch
+import torch.nn.functional as F
 import torch.nn.utils as nn_utils
 from collections import OrderedDict
 
@@ -193,13 +194,98 @@ class MambaIRv2LLIESRModel(SRModel):
             self.model_ema(decay=self.ema_decay)
 
     def test(self):
-        """Inference with illumination guidance (no partitioning)."""
-        if hasattr(self, 'net_g_ema'):
-            self.net_g_ema.eval()
-            with torch.no_grad():
-                self.output = self.net_g_ema(self.lq, self.gray)
-        else:
-            self.net_g.eval()
-            with torch.no_grad():
-                self.output = self.net_g(self.lq, self.gray)
+        """Inference with partitioning (adapted from MambaIRv2LightModel).
+
+        Splits LQ into overlapping patches (~200×200), processes each
+        independently (gray=None → computed per-patch by the arch),
+        and merges results.  This avoids OOM on full-resolution images
+        (e.g. 625×625 RELLISUR val/test).
+        """
+        _, C, h, w = self.lq.size()
+        split_token_h = h // 200 + 1
+        split_token_w = w // 200 + 1
+
+        # Padding so dimensions are divisible by split_token counts
+        mod_pad_h, mod_pad_w = 0, 0
+        if h % split_token_h != 0:
+            mod_pad_h = split_token_h - h % split_token_h
+        if w % split_token_w != 0:
+            mod_pad_w = split_token_w - w % split_token_w
+        img = F.pad(self.lq, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
+        _, _, H, W = img.size()
+        split_h = H // split_token_h
+        split_w = W // split_token_w
+
+        # Overlap shave
+        shave_h = split_h // 10
+        shave_w = split_w // 10
+        scale = self.opt.get('scale', 1)
+        ral = H // split_h
+        row = W // split_w
+
+        # Build partition slices (with overlap)
+        slices = []
+        for i in range(ral):
+            for j in range(row):
+                if i == 0 and i == ral - 1:
+                    top = slice(i * split_h, (i + 1) * split_h)
+                elif i == 0:
+                    top = slice(i * split_h, (i + 1) * split_h + shave_h)
+                elif i == ral - 1:
+                    top = slice(i * split_h - shave_h, (i + 1) * split_h)
+                else:
+                    top = slice(i * split_h - shave_h,
+                                (i + 1) * split_h + shave_h)
+                if j == 0 and j == row - 1:
+                    left = slice(j * split_w, (j + 1) * split_w)
+                elif j == 0:
+                    left = slice(j * split_w, (j + 1) * split_w + shave_w)
+                elif j == row - 1:
+                    left = slice(j * split_w - shave_w, (j + 1) * split_w)
+                else:
+                    left = slice(j * split_w - shave_w,
+                                 (j + 1) * split_w + shave_w)
+                slices.append((top, left))
+
+        # Extract partitions
+        img_chops = [img[..., top, left] for top, left in slices]
+
+        # Choose model
+        net = (self.net_g_ema if hasattr(self, 'net_g_ema')
+               else self.net_g)
+        net.eval()
+
+        with torch.no_grad():
+            outputs = []
+            for chop in img_chops:
+                # gray=None → arch computes illumination guidance per-patch
+                out = net(chop, None)
+                outputs.append(out)
+
+            _img = torch.zeros(1, C, H * scale, W * scale)
+            for i in range(ral):
+                for j in range(row):
+                    top = slice(i * split_h * scale,
+                                (i + 1) * split_h * scale)
+                    left = slice(j * split_w * scale,
+                                 (j + 1) * split_w * scale)
+                    _top = (slice(0, split_h * scale) if i == 0
+                            else slice(shave_h * scale,
+                                       (shave_h + split_h) * scale))
+                    _left = (slice(0, split_w * scale) if j == 0
+                             else slice(shave_w * scale,
+                                        (shave_w + split_w) * scale))
+                    _img[..., top, left] = \
+                        outputs[i * row + j][..., _top, _left]
+            self.output = _img
+
+        if not hasattr(self, 'net_g_ema'):
             self.net_g.train()
+
+        # Remove padding
+        _, _, h_out, w_out = self.output.size()
+        self.output = self.output[
+            :, :,
+            :h_out - mod_pad_h * scale,
+            :w_out - mod_pad_w * scale
+        ]

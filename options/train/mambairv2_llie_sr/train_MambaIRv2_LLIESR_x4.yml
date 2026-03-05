@@ -17,10 +17,9 @@ datasets:
     task: SR
     name: RELLISUR_Train
     type: PairedImageDataset
-    dataroot_gt:
-      - datasets/RELLISUR-Dataset/Train/NLHR-Duplicates/X4
-    dataroot_lq:
-      - datasets/RELLISUR-Dataset/Train/LLLR
+    dataroot_gt: datasets/RELLISUR-Dataset/Train/NLHR-Duplicates/X4
+    dataroot_lq: datasets/RELLISUR-Dataset/Train/LLLR
+    meta_info_file: datasets/RELLISUR-Dataset/meta_info_RELLISUR_train_X4.txt
     io_backend:
       type: disk
 
@@ -44,6 +43,7 @@ datasets:
     type: PairedImageDataset
     dataroot_gt: datasets/RELLISUR-Dataset/Val/NLHR-Duplicates/X4
     dataroot_lq: datasets/RELLISUR-Dataset/Val/LLLR
+    meta_info_file: datasets/RELLISUR-Dataset/meta_info_RELLISUR_val_quick_X4.txt
     use_illguidance: true
     io_backend:
       type: disk
@@ -148,8 +148,8 @@ train:
 # Validation Settings
 # -----------------------------------------------------------------------------
 val:
-  val_freq: !!float 5e3
-  save_img: true
+  val_freq: !!float 1e4
+  save_img: false
 
   metrics:
     psnr:
@@ -161,8 +161,8 @@ val:
 # Logging
 # -----------------------------------------------------------------------------
 logger:
-  print_freq: 200
-  save_checkpoint_freq: !!float 5e3
+  print_freq: 10
+  save_checkpoint_freq: !!float 1e4
   use_tb_logger: true
   wandb:
     project: ~

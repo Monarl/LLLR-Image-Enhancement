@@ -1,0 +1,79 @@
+# =============================================================================
+# MambaIRv2 LLIE+SR Test Config (x4 upscale)
+# Joint Low-Light Enhancement + Super-Resolution on RELLISUR dataset
+# =============================================================================
+
+name: test_MambaIRv2_LLIESR_x4
+model_type: MambaIRv2LLIESRModel
+scale: 4
+num_gpu: 1
+manual_seed: 10
+
+datasets:
+  test_1:
+    name: RELLISUR_Test
+    type: PairedImageDataset
+    dataroot_gt: datasets/RELLISUR-Dataset/Test/NLHR-Duplicates/X4
+    dataroot_lq: datasets/RELLISUR-Dataset/Test/LLLR
+    meta_info_file: datasets/RELLISUR-Dataset/meta_info_RELLISUR_test_X4.txt
+    use_illguidance: true
+    io_backend:
+      type: disk
+
+  test_2:
+    name: RELLISUR_Val
+    type: PairedImageDataset
+    dataroot_gt: datasets/RELLISUR-Dataset/Val/NLHR-Duplicates/X4
+    dataroot_lq: datasets/RELLISUR-Dataset/Val/LLLR
+    meta_info_file: datasets/RELLISUR-Dataset/meta_info_RELLISUR_val_X4.txt
+    use_illguidance: true
+    io_backend:
+      type: disk
+
+# -----------------------------------------------------------------------------
+# Network Architecture (must match training config)
+# -----------------------------------------------------------------------------
+network_g:
+  type: MambaIRv2LLIESR
+  upscale: 4
+  in_chans: 3
+  img_size: 64
+  img_range: 1.
+  embed_dim: 48
+  d_state: 8
+  depths: [ 5, 5, 5, 5 ]
+  num_heads: [ 4, 4, 4, 4 ]
+  window_size: 16
+  inner_rank: 32
+  num_tokens: 64
+  convffn_kernel_size: 5
+  mlp_ratio: 1.0
+  upsampler: 'pixelshuffledirect'
+  resi_connection: '1conv'
+  igm_n_feat: 48
+  isdm_num_heads: 2
+  isdm_ffn_expansion: 2.66
+
+# -----------------------------------------------------------------------------
+# Paths
+# -----------------------------------------------------------------------------
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+
+# -----------------------------------------------------------------------------
+# Validation Settings
+# -----------------------------------------------------------------------------
+val:
+  save_img: true
+  suffix: ~
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 4
+      test_y_channel: true
+    ssim:
+      type: calculate_ssim
+      crop_border: 4
+      test_y_channel: true
