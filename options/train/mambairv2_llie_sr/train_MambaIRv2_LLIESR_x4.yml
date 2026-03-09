@@ -17,9 +17,9 @@ datasets:
     task: SR
     name: RELLISUR_Train
     type: PairedImageDataset
-    dataroot_gt: datasets/RELLISUR-Dataset/Train/NLHR-Duplicates/X4
+    dataroot_gt: datasets/RELLISUR-Dataset/Train/NLHR/X4
     dataroot_lq: datasets/RELLISUR-Dataset/Train/LLLR
-    meta_info_file: datasets/RELLISUR-Dataset/meta_info_RELLISUR_train_X4.txt
+    direct_gt_match: true
     io_backend:
       type: disk
 
@@ -41,8 +41,9 @@ datasets:
   val:
     name: RELLISUR_Val
     type: PairedImageDataset
-    dataroot_gt: datasets/RELLISUR-Dataset/Val/NLHR-Duplicates/X4
+    dataroot_gt: datasets/RELLISUR-Dataset/Val/NLHR/X4
     dataroot_lq: datasets/RELLISUR-Dataset/Val/LLLR
+    direct_gt_match: true
     meta_info_file: datasets/RELLISUR-Dataset/meta_info_RELLISUR_val_quick_X4.txt
     use_illguidance: true
     io_backend:
@@ -99,6 +100,13 @@ train:
   total_iter: 500000
   warmup_iter: -1
 
+  # Differential learning rates (optional)
+  # Set to a float (e.g. 0.1) to train backbone at lr*backbone_lr_scale
+  # and igm/mini_aspp_stages/isdm_stages at full lr.
+  # Set to ~ to disable (single lr for all params).
+  backbone_lr_scale: ~
+  # backbone_lr_scale: 0.1
+
   # ---------------------------------------------------------------------------
   # Loss Functions
   # L_total = L_rec + λ_perc*L_perc + λ_ssim*L_ssim + λ_light*L_light + λ_tv*L_tv
@@ -112,43 +120,43 @@ train:
 
   # Loss 2: Perceptual loss (VGG19 feature matching)
   # Weights from UltraIS: conv1_2=0.1, conv2_2=0.1, conv3_4=1, conv4_4=1, conv5_4=1
-  # perceptual_opt:
-  #   type: PerceptualLoss
-  #   layer_weights:
-  #     'conv1_2': 0.1
-  #     'conv2_2': 0.1
-  #     'conv3_4': 1
-  #     'conv4_4': 1
-  #     'conv5_4': 1
-  #   vgg_type: vgg19
-  #   use_input_norm: true
-  #   perceptual_weight: !!float 1.0
-  #   style_weight: 0
-  #   range_norm: false
-  #   criterion: l1
+  perceptual_opt:
+    type: PerceptualLoss
+    layer_weights:
+      'conv1_2': 0.1
+      'conv2_2': 0.1
+      'conv3_4': 1
+      'conv4_4': 1
+      'conv5_4': 1
+    vgg_type: vgg19
+    use_input_norm: true
+    perceptual_weight: !!float 1.0
+    style_weight: 0
+    range_norm: false
+    criterion: l1
 
-  # # Loss 3: SSIM loss (L_ssim = 1 - SSIM(pred, gt))
-  # ssim_opt:
-  #   type: SSIMLoss
-  #   window_size: 11
-  #   loss_weight: !!float 0.1
+  # Loss 3: SSIM loss (L_ssim = 1 - SSIM(pred, gt))
+  ssim_opt:
+    type: SSIMLoss
+    window_size: 11
+    loss_weight: !!float 0.1
 
-  # # Loss 4: Illumination loss (L_light = ||Y(pred) - Y(gt)||_1)
-  # illumination_opt:
-  #   type: IlluminationLoss
-  #   loss_weight: !!float 1.0
-  #   reduction: mean
+  # Loss 4: Illumination loss (L_light = ||Y(pred) - Y(gt)||_1)
+  illumination_opt:
+    type: IlluminationLoss
+    loss_weight: !!float 1.0
+    reduction: mean
 
-  # # Loss 5: Total Variation loss (L_tv for spatial smoothness)
-  # tv_opt:
-  #   type: TotalVariationLoss
-  #   loss_weight: !!float 0.01
+  # Loss 5: Total Variation loss (L_tv for spatial smoothness)
+  tv_opt:
+    type: TotalVariationLoss
+    loss_weight: !!float 0.01
 
 # -----------------------------------------------------------------------------
 # Validation Settings
 # -----------------------------------------------------------------------------
 val:
-  val_freq: !!float 1e4
+  val_freq: !!float 2.5e2
   save_img: false
 
   metrics:
@@ -161,8 +169,8 @@ val:
 # Logging
 # -----------------------------------------------------------------------------
 logger:
-  print_freq: 10
-  save_checkpoint_freq: !!float 1e4
+  print_freq: 2
+  save_checkpoint_freq: !!float 2.5e2
   use_tb_logger: true
   wandb:
     project: ~

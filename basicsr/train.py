@@ -175,7 +175,17 @@ def train_pipeline(root_path):
             model.update_learning_rate(current_iter, warmup_iter=opt['train'].get('warmup_iter', -1))
             # training
             model.feed_data(train_data)
+
+            # --- VRAM measurement ---
+            if current_iter % 10 == 1:
+                torch.cuda.reset_peak_memory_stats()
+
             model.optimize_parameters(current_iter)
+
+            if current_iter % 10 == 0:
+                allocated_gb = torch.cuda.max_memory_allocated() / 1024**3
+                reserved_gb  = torch.cuda.max_memory_reserved()  / 1024**3
+                logger.info(f'[Iter {current_iter}] Peak VRAM (allocated): {allocated_gb:.2f} GB | reserved: {reserved_gb:.2f} GB')
 
             iter_timer.record()
             if current_iter == 1:

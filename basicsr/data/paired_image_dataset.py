@@ -114,6 +114,36 @@ class PairedImageDataset(data.Dataset):
             self.io_backend_opt['db_paths'] = [self.lq_folder, self.gt_folder]
             self.io_backend_opt['client_keys'] = ['lq', 'gt']
             self.paths = paired_paths_from_lmdb([self.lq_folder, self.gt_folder], ['lq', 'gt'])
+        elif self.opt.get('direct_gt_match', False):
+            # RELLISUR-style: LQ filenames are "ID-scale-seq.png",
+            # GT filenames are "ID.png" in a flat folder.
+            # Avoids the need for NLHR-Duplicates (~38 GB of redundant copies).
+            import glob
+            import os as _os
+            # Optional: meta_info_file acts as a whitelist of LQ filenames
+            # (e.g. a quick-val subset). If absent, scan the full LQ folder.
+            if 'meta_info_file' in self.opt and self.opt['meta_info_file'] is not None:
+                with open(self.opt['meta_info_file'], 'r') as _f:
+                    allowed = set()
+                    for _line in _f:
+                        _name = _line.strip().split(' ')[0]
+                        if _name:
+                            allowed.add(_name)
+                lq_paths = sorted(
+                    _os.path.join(self.lq_folder, n)
+                    for n in allowed
+                    if _os.path.exists(_os.path.join(self.lq_folder, n))
+                )
+            else:
+                lq_paths = sorted(glob.glob(_os.path.join(self.lq_folder, '*.png')))
+            self.paths = []
+            for lq_path in lq_paths:
+                img_id = _os.path.basename(lq_path).split('-')[0]
+                gt_path = _os.path.join(self.gt_folder, f'{img_id}.png')
+                if _os.path.exists(gt_path):
+                    self.paths.append({'lq_path': lq_path, 'gt_path': gt_path})
+                else:
+                    print(f'Warning: no GT found for {lq_path}, skipping.')
         elif 'meta_info_file' in self.opt and self.opt['meta_info_file'] is not None:
             self.paths = paired_paths_from_meta_info_file([self.lq_folder, self.gt_folder], ['lq', 'gt'],
                                                           self.opt['meta_info_file'], self.filename_tmpl)

@@ -29,6 +29,74 @@ class MambaIRv2LLIESRModel(SRModel):
       3. Use multi-loss training: L1 + Perceptual + SSIM + Illumination + TV
     """
 
+    def setup_optimizers(self):
+        """Override to support differential learning rates.
+
+        If ``train.backbone_lr_scale`` is set in the YAML (e.g. 0.1), the
+        backbone parameters (conv_first, layers, norm, conv_after_body,
+        upsample) are placed in a separate param group with
+        ``lr = base_lr * backbone_lr_scale``, while the new LLIE modules
+        (igm, mini_aspp_stages, isdm_stages) use the full base lr.
+
+        If ``backbone_lr_scale`` is absent or None the method falls back to
+        the standard single-group behaviour (identical to SRModel).
+        """
+        train_opt = self.opt['train']
+        backbone_lr_scale = train_opt.get('backbone_lr_scale', None)
+
+        if backbone_lr_scale is None:
+            # Standard single-group optimiser (SRModel behaviour)
+            super().setup_optimizers()
+            return
+
+        logger = get_root_logger()
+        logger.info(
+            f'Differential LR: backbone_lr_scale={backbone_lr_scale}. '
+            f'New modules (igm / mini_aspp / isdm) use full lr; '
+            f'backbone uses lr * {backbone_lr_scale}.'
+        )
+
+        NEW_MODULE_PREFIXES = ('igm.', 'mini_aspp_stages.', 'isdm_stages.')
+
+        backbone_params = []
+        new_module_params = []
+        for name, param in self.net_g.named_parameters():
+            if not param.requires_grad:
+                logger.warning(f'Params {name} will not be optimized.')
+                continue
+            if any(name.startswith(p) for p in NEW_MODULE_PREFIXES):
+                new_module_params.append(param)
+            else:
+                backbone_params.append(param)
+
+        optim_type = train_opt['optim_g'].pop('type')
+        base_lr = train_opt['optim_g']['lr']
+        optim_kwargs = {k: v for k, v in train_opt['optim_g'].items()
+                        if k != 'lr'}
+
+        param_groups = [
+            {'params': backbone_params,
+             'lr': base_lr * backbone_lr_scale,
+             'name': 'backbone'},
+            {'params': new_module_params,
+             'lr': base_lr,
+             'name': 'new_modules'},
+        ]
+
+        self.optimizer_g = self.get_optimizer(
+            optim_type, param_groups, lr=base_lr, **optim_kwargs
+        )
+        self.optimizers.append(self.optimizer_g)
+
+        logger.info(
+            f'  backbone params : {sum(p.numel() for p in backbone_params):,} '
+            f'(lr={base_lr * backbone_lr_scale:.2e})'
+        )
+        logger.info(
+            f'  new module params: {sum(p.numel() for p in new_module_params):,} '
+            f'(lr={base_lr:.2e})'
+        )
+
     def init_training_settings(self):
         """Override to add SSIM, Illumination, and TV losses."""
         # Call parent to set up pixel_opt, perceptual_opt, optimizer, scheduler
@@ -157,6 +225,7 @@ class MambaIRv2LLIESRModel(SRModel):
             loss_dict['l_tv'] = l_tv
 
         # Backward
+        loss_dict['l_total'] = l_total.detach()
         l_total.backward()
         nn_utils.clip_grad_norm_(self.net_g.parameters(), max_norm=1.0)
 
