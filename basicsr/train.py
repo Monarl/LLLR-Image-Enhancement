@@ -182,7 +182,7 @@ def train_pipeline(root_path):
 
             model.optimize_parameters(current_iter)
 
-            if current_iter % 10 == 0:
+            if current_iter == 100:
                 allocated_gb = torch.cuda.max_memory_allocated() / 1024**3
                 reserved_gb  = torch.cuda.max_memory_reserved()  / 1024**3
                 logger.info(f'[Iter {current_iter}] Peak VRAM (allocated): {allocated_gb:.2f} GB | reserved: {reserved_gb:.2f} GB')

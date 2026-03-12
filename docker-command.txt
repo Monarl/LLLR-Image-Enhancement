@@ -11,6 +11,22 @@ python basicsr/train.py \
     -opt options/train/mambairv2_llie_sr/train_MambaIRv2_LLIESR_x4.yml \
     --debug
 
+---------------------- For gpu renting terminal usage -------------------
+- Add setup.sh to workspace
+ssh -p 43737 root@99.254.141.96 -L 8080:localhost:8080
+chmod +x setup.sh
+./setup.sh
+cd LLLR-Image-Enhancement
+python basicsr/train.py -opt options/train/mambairv2_llie_sr/train_MambaIRv2_LLIESR_x4.yml
+
+- To make it work in background: 
+Ctrl + B then press D
+
+- To restore the terminal: 
+ssh -p 43737 root@99.254.141.96 -L 8080:localhost:8080
+tmux attach
+-------------------------------------------------------------------------
+
 Change yml file to use 1 gpu and double the batch size
 ------------------------------------------------------------------------------
 Visualize test image command

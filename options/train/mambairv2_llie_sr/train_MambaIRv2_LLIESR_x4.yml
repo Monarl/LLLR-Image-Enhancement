@@ -79,6 +79,7 @@ network_g:
 # -----------------------------------------------------------------------------
 path:
   pretrain_network_g: ~
+  # pretrain_network_g: experiments/pretrained_models/mambairv2_lightSR_x4.pth
   strict_load_g: false
   resume_state: ~
 
@@ -156,7 +157,7 @@ train:
 # Validation Settings
 # -----------------------------------------------------------------------------
 val:
-  val_freq: !!float 2.5e2
+  val_freq: !!float 5e3
   save_img: false
 
   metrics:
@@ -169,8 +170,8 @@ val:
 # Logging
 # -----------------------------------------------------------------------------
 logger:
-  print_freq: 2
-  save_checkpoint_freq: !!float 2.5e2
+  print_freq: 200
+  save_checkpoint_freq: !!float 5e3
   use_tb_logger: true
   wandb:
     project: ~
