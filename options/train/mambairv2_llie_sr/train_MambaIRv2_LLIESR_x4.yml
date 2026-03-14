@@ -131,7 +131,7 @@ train:
       'conv5_4': 1
     vgg_type: vgg19
     use_input_norm: true
-    perceptual_weight: !!float 1.0
+    perceptual_weight: !!float 0.1
     style_weight: 0
     range_norm: false
     criterion: l1
@@ -140,24 +140,24 @@ train:
   ssim_opt:
     type: SSIMLoss
     window_size: 11
-    loss_weight: !!float 0.1
+    loss_weight: !!float 0.5
 
   # Loss 4: Illumination loss (L_light = ||Y(pred) - Y(gt)||_1)
   illumination_opt:
     type: IlluminationLoss
-    loss_weight: !!float 1.0
+    loss_weight: !!float 0.5
     reduction: mean
 
   # Loss 5: Total Variation loss (L_tv for spatial smoothness)
   tv_opt:
     type: TotalVariationLoss
-    loss_weight: !!float 0.01
+    loss_weight: !!float 0.001
 
 # -----------------------------------------------------------------------------
 # Validation Settings
 # -----------------------------------------------------------------------------
 val:
-  val_freq: !!float 5e3
+  val_freq: !!float 2.5e2
   save_img: false
 
   metrics:
@@ -170,8 +170,8 @@ val:
 # Logging
 # -----------------------------------------------------------------------------
 logger:
-  print_freq: 200
-  save_checkpoint_freq: !!float 5e3
+  print_freq: 25
+  save_checkpoint_freq: !!float 2.5e2
   use_tb_logger: true
   wandb:
     project: ~
