@@ -58,7 +58,7 @@ network_g:
   in_chans: 3
   img_size: 64
   img_range: 1.
-  embed_dim: 48
+  embed_dim: 64
   d_state: 8
   depths: [ 5, 5, 5, 5 ]
   num_heads: [ 4, 4, 4, 4 ]
@@ -66,11 +66,11 @@ network_g:
   inner_rank: 32
   num_tokens: 64
   convffn_kernel_size: 5
-  mlp_ratio: 1.0
+  mlp_ratio: 2.0
   upsampler: 'pixelshuffledirect'
   resi_connection: '1conv'
   # LLIE+SR specific
-  igm_n_feat: 48
+  igm_n_feat: 64
   isdm_num_heads: 2
   isdm_ffn_expansion: 2.66
 
@@ -78,8 +78,8 @@ network_g:
 # Paths
 # -----------------------------------------------------------------------------
 path:
-  pretrain_network_g: ~
-  # pretrain_network_g: experiments/pretrained_models/mambairv2_lightSR_x4.pth
+  # pretrain_network_g: ~
+  pretrain_network_g: experiments/pretrained_models/mambairv2_lightSR_x4.pth
   strict_load_g: false
   resume_state: ~
 
@@ -105,8 +105,8 @@ train:
   # Set to a float (e.g. 0.1) to train backbone at lr*backbone_lr_scale
   # and igm/mini_aspp_stages/isdm_stages at full lr.
   # Set to ~ to disable (single lr for all params).
-  backbone_lr_scale: ~
-  # backbone_lr_scale: 0.1
+  # backbone_lr_scale: ~
+  backbone_lr_scale: 0.1
 
   # ---------------------------------------------------------------------------
   # Loss Functions
@@ -131,7 +131,7 @@ train:
       'conv5_4': 1
     vgg_type: vgg19
     use_input_norm: true
-    perceptual_weight: !!float 0.1
+    perceptual_weight: !!float 1.0
     style_weight: 0
     range_norm: false
     criterion: l1
@@ -140,18 +140,18 @@ train:
   ssim_opt:
     type: SSIMLoss
     window_size: 11
-    loss_weight: !!float 0.5
+    loss_weight: !!float 0.1
 
   # Loss 4: Illumination loss (L_light = ||Y(pred) - Y(gt)||_1)
   illumination_opt:
     type: IlluminationLoss
-    loss_weight: !!float 0.5
+    loss_weight: !!float 1.0
     reduction: mean
 
   # Loss 5: Total Variation loss (L_tv for spatial smoothness)
   tv_opt:
     type: TotalVariationLoss
-    loss_weight: !!float 0.001
+    loss_weight: !!float 0.01
 
 # -----------------------------------------------------------------------------
 # Validation Settings
