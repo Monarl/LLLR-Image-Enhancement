@@ -12,11 +12,13 @@ Architecture (per stage):
          │
          ├──► Branch 1: Conv 1x1 ──────────────────────► Local details
          │
-         ├──► Branch 2: DW-Conv 3x3 (d=2) + PW 1x1 ──► Medium context
+         ├──► Branch 2: DW-Conv 3x3 (d=2) + PW 1x1 ──► Short-range context
          │
-         ├──► Branch 3: DW-Conv 3x3 (d=4) + PW 1x1 ──► Global context
+         ├──► Branch 3: DW-Conv 3x3 (d=4) + PW 1x1 ──► Mid-range context
          │
-         └──► Fusion: Concat [B1, B2, B3] → Conv 1x1 → S_fk [B, C_out, H, W]
+         ├──► Branch 4: DW-Conv 3x3 (d=6) + PW 1x1 ──► Long-range context
+         │
+         └──► Fusion: Concat [B1,B2,B3,B4] → Conv 1x1 → (+x) → S_fk [B, C, H, W]
 """
 
 import torch
@@ -31,11 +33,12 @@ class MiniASPP(nn.Module):
 
     Applies parallel dilated convolution branches to capture context at multiple
     receptive field scales, then fuses them into a single semantic feature map.
+    A residual skip connection is added when in_channels == out_channels.
 
     Args:
         in_channels (int): Number of input channels (embed_dim from MambaIRv2).
         out_channels (int, optional): Number of output channels. Defaults to in_channels.
-        dilations (tuple): Dilation rates for branch 2 and branch 3. Default: (2, 4).
+        dilations (tuple): Dilation rates for branches 2, 3, and 4. Default: (2, 4, 6).
         bias (bool): Whether to use bias in convolution layers. Default: False.
 
     Input:
@@ -45,7 +48,7 @@ class MiniASPP(nn.Module):
         Semantic feature tensor [B, out_channels, H, W] (S_fk).
 
     Example:
-        >>> mini_aspp = MiniASPP(in_channels=48, out_channels=48)
+        >>> mini_aspp = MiniASPP(in_channels=48)
         >>> x = torch.randn(2, 48, 64, 64)
         >>> s_fk = mini_aspp(x)
         >>> print(s_fk.shape)  # [2, 48, 64, 64]
@@ -55,7 +58,7 @@ class MiniASPP(nn.Module):
         self,
         in_channels: int,
         out_channels: Optional[int] = None,
-        dilations: Tuple[int, int] = (2, 4),
+        dilations: Tuple[int, int, int] = (2, 4, 6),
         bias: bool = False,
     ):
         super(MiniASPP, self).__init__()
@@ -74,7 +77,7 @@ class MiniASPP(nn.Module):
         )
 
         # Branch 2: Depthwise Conv 3x3 (dilation=2) + Pointwise Conv 1x1
-        # Effective receptive field: 5x5 — medium-range context
+        # Effective receptive field: 5x5 — short-range context
         d1 = dilations[0]
         self.branch2 = nn.Sequential(
             nn.Conv2d(
@@ -87,7 +90,7 @@ class MiniASPP(nn.Module):
         )
 
         # Branch 3: Depthwise Conv 3x3 (dilation=4) + Pointwise Conv 1x1
-        # Effective receptive field: 9x9 — global-range context
+        # Effective receptive field: 9x9 — mid-range context
         d2 = dilations[1]
         self.branch3 = nn.Sequential(
             nn.Conv2d(
@@ -99,11 +102,27 @@ class MiniASPP(nn.Module):
             nn.LeakyReLU(negative_slope=0.2, inplace=True),
         )
 
-        # Fusion: Concatenate all branches → reduce to output channels
-        self.fusion = nn.Sequential(
-            nn.Conv2d(in_channels * 3, out_channels, kernel_size=1, bias=bias),
+        # Branch 4: Depthwise Conv 3x3 (dilation=6) + Pointwise Conv 1x1
+        # Effective receptive field: 13x13 — long-range context
+        d3 = dilations[2]
+        self.branch4 = nn.Sequential(
+            nn.Conv2d(
+                in_channels, in_channels,
+                kernel_size=3, padding=d3, dilation=d3,
+                groups=in_channels, bias=bias,
+            ),
+            nn.Conv2d(in_channels, in_channels, kernel_size=1, bias=bias),
             nn.LeakyReLU(negative_slope=0.2, inplace=True),
         )
+
+        # Fusion: Concatenate all 4 branches → reduce to output channels
+        self.fusion = nn.Sequential(
+            nn.Conv2d(in_channels * 4, out_channels, kernel_size=1, bias=bias),
+            nn.LeakyReLU(negative_slope=0.2, inplace=True),
+        )
+
+        # Residual skip only when channels are preserved
+        self.use_residual = (in_channels == out_channels)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -116,14 +135,17 @@ class MiniASPP(nn.Module):
             Semantic feature tensor [B, out_channels, H, W] (S_fk).
         """
         b1 = self.branch1(x)   # [B, C, H, W] — local
-        b2 = self.branch2(x)   # [B, C, H, W] — medium context (d=2)
-        b3 = self.branch3(x)   # [B, C, H, W] — global context (d=4)
+        b2 = self.branch2(x)   # [B, C, H, W] — short-range  (d=2)
+        b3 = self.branch3(x)   # [B, C, H, W] — mid-range    (d=4)
+        b4 = self.branch4(x)   # [B, C, H, W] — long-range   (d=6)
 
-        # Concatenate and fuse
-        fused = torch.cat([b1, b2, b3], dim=1)  # [B, 3*C, H, W]
-        s_fk = self.fusion(fused)                # [B, out_channels, H, W]
+        fused = torch.cat([b1, b2, b3, b4], dim=1)  # [B, 4*C, H, W]
+        out = self.fusion(fused)                     # [B, out_channels, H, W]
 
-        return s_fk
+        if self.use_residual:
+            out = out + x
+
+        return out
 
     def count_params(self) -> int:
         """Count total trainable parameters."""
@@ -143,21 +165,17 @@ class MiniASPP(nn.Module):
         hw = h * w
         c_in = self.in_channels
         c_out = self.out_channels
-        d1, d2 = self.dilations
 
         # Branch 1: Conv 1x1 → c_in * c_in * HW
         flops_b1 = c_in * c_in * hw
 
-        # Branch 2: DW 3x3 → c_in * 9 * HW, PW 1x1 → c_in * c_in * HW
-        flops_b2 = c_in * 9 * hw + c_in * c_in * hw
+        # Branches 2/3/4: DW 3x3 → c_in * 9 * HW, PW 1x1 → c_in * c_in * HW
+        flops_dilated = (c_in * 9 * hw + c_in * c_in * hw) * 3
 
-        # Branch 3: DW 3x3 → c_in * 9 * HW, PW 1x1 → c_in * c_in * HW
-        flops_b3 = c_in * 9 * hw + c_in * c_in * hw
+        # Fusion: Conv 1x1 → 4*c_in * c_out * HW
+        flops_fusion = 4 * c_in * c_out * hw
 
-        # Fusion: Conv 1x1 → 3*c_in * c_out * HW
-        flops_fusion = 3 * c_in * c_out * hw
-
-        return flops_b1 + flops_b2 + flops_b3 + flops_fusion
+        return flops_b1 + flops_dilated + flops_fusion
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +186,7 @@ def create_mini_aspp_stages(
     num_stages: int,
     in_channels: int,
     out_channels: Optional[int] = None,
-    dilations: Tuple[int, int] = (2, 4),
+    dilations: Tuple[int, int, int] = (2, 4, 6),
     bias: bool = False,
 ) -> nn.ModuleList:
     """
@@ -186,7 +204,7 @@ def create_mini_aspp_stages(
         num_stages: Number of ASSG stages (len(depths) in MambaIRv2).
         in_channels: Input channels per stage (embed_dim).
         out_channels: Output channels per stage. Defaults to in_channels.
-        dilations: Dilation rates for branches 2 and 3.
+        dilations: Dilation rates for branches 2, 3, and 4.
         bias: Whether to use bias in convolutions.
 
     Returns:
@@ -206,26 +224,30 @@ if __name__ == "__main__":
     print("Mini-ASPP Module Unit Tests")
     print("=" * 60)
 
-    # Test 1: Basic MiniASPP
-    print("\n--- Test 1: Basic MiniASPP (embed_dim=48) ---")
-    mini_aspp = MiniASPP(in_channels=48, out_channels=48)
+    # Test 1: Basic MiniASPP with residual
+    print("\n--- Test 1: Basic MiniASPP (embed_dim=48, residual active) ---")
+    mini_aspp = MiniASPP(in_channels=48)
     x = torch.randn(2, 48, 64, 64)
     s_fk = mini_aspp(x)
     print(f"Input shape:  {x.shape}")
     print(f"Output shape: {s_fk.shape}")
     print(f"Parameters:   {mini_aspp.count_params():,}")
     print(f"FLOPs (64x64): {mini_aspp.count_flops((64, 64)):,.0f}")
+    print(f"Residual:     {mini_aspp.use_residual}")
     assert s_fk.shape == (2, 48, 64, 64), f"Shape mismatch: {s_fk.shape}"
+    assert mini_aspp.use_residual
     print("PASSED")
 
-    # Test 2: Different output channels
-    print("\n--- Test 2: MiniASPP with different out_channels ---")
+    # Test 2: Different out_channels — no residual
+    print("\n--- Test 2: MiniASPP with different out_channels (no residual) ---")
     mini_aspp2 = MiniASPP(in_channels=48, out_channels=64)
     s_fk2 = mini_aspp2(x)
     print(f"Input shape:  {x.shape}")
     print(f"Output shape: {s_fk2.shape}")
     print(f"Parameters:   {mini_aspp2.count_params():,}")
+    print(f"Residual:     {mini_aspp2.use_residual}")
     assert s_fk2.shape == (2, 64, 64, 64), f"Shape mismatch: {s_fk2.shape}"
+    assert not mini_aspp2.use_residual
     print("PASSED")
 
     # Test 3: create_mini_aspp_stages factory

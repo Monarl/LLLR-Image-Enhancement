@@ -41,13 +41,13 @@ network_g:
   img_range: 1.
   embed_dim: 48
   d_state: 8
-  depths: [ 5, 5, 5, 5 ]
+  depths: [ 6, 6, 6, 6 ]
   num_heads: [ 4, 4, 4, 4 ]
   window_size: 16
   inner_rank: 32
   num_tokens: 64
   convffn_kernel_size: 5
-  mlp_ratio: 1.0
+  mlp_ratio: 2.0
   upsampler: 'pixelshuffledirect'
   resi_connection: '1conv'
   igm_n_feat: 48
