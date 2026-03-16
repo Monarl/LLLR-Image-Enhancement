@@ -39,18 +39,18 @@ network_g:
   in_chans: 3
   img_size: 64
   img_range: 1.
-  embed_dim: 48
-  d_state: 8
-  depths: [ 5, 5, 5, 5 ]
-  num_heads: [ 4, 4, 4, 4 ]
+  embed_dim: 132
+  d_state: 16
+  depths: [ 4, 4, 4, 4, 4, 4 ]
+  num_heads: [ 4, 4, 4, 4, 4, 4 ]
   window_size: 16
-  inner_rank: 32
-  num_tokens: 64
+  inner_rank: 64
+  num_tokens: 128
   convffn_kernel_size: 5
-  mlp_ratio: 1.0
-  upsampler: 'pixelshuffledirect'
+  mlp_ratio: 2.0
+  upsampler: 'pixelshuffle'
   resi_connection: '1conv'
-  igm_n_feat: 48
+  igm_n_feat: 132
   isdm_num_heads: 2
   isdm_ffn_expansion: 2.66
 

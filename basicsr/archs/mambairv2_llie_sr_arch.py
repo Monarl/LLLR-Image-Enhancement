@@ -29,8 +29,8 @@ import torch.nn.functional as F
 from basicsr.archs.arch_util import to_2tuple, trunc_normal_
 from basicsr.utils.registry import ARCH_REGISTRY
 
-# Reuse ASSG blocks and utilities from MambaIRv2Light
-from basicsr.archs.mambairv2light_arch import (
+# Reuse ASSG blocks and utilities from MambaIRv2 (full/small model)
+from basicsr.archs.mambairv2_arch import (
     ASSB,
     PatchEmbed,
     PatchUnEmbed,
@@ -113,20 +113,20 @@ class MambaIRv2LLIESR(nn.Module):
         img_size (int): Input image size. Default: 64.
         patch_size (int): Patch size. Default: 1.
         in_chans (int): Number of input channels. Default: 3.
-        embed_dim (int): Feature dimension. Default: 48.
-        d_state (int): SSM hidden state dimension. Default: 8.
-        depths (tuple[int]): Depths per ASSG stage. Default: (5, 5, 5, 5).
-        num_heads (tuple[int]): Attention heads per stage. Default: (4, 4, 4, 4).
+        embed_dim (int): Feature dimension. Default: 132.
+        d_state (int): SSM hidden state dimension. Default: 16.
+        depths (tuple[int]): Depths per ASSG stage. Default: (4, 4, 4, 4, 4, 4).
+        num_heads (tuple[int]): Attention heads per stage. Default: (4, 4, 4, 4, 4, 4).
         window_size (int): Window-MHSA window size. Default: 16.
-        inner_rank (int): Prompt decomposition rank. Default: 32.
-        num_tokens (int): Prompt pool size. Default: 64.
+        inner_rank (int): Prompt decomposition rank. Default: 64.
+        num_tokens (int): Prompt pool size. Default: 128.
         convffn_kernel_size (int): ConvFFN kernel size. Default: 5.
-        mlp_ratio (float): MLP expansion ratio. Default: 1.0.
+        mlp_ratio (float): MLP expansion ratio. Default: 2.0.
         upscale (int): Upsampling factor. Default: 4.
         img_range (float): Image value range. Default: 1.0.
-        upsampler (str): Upsampling method. Default: 'pixelshuffledirect'.
+        upsampler (str): Upsampling method. Default: 'pixelshuffle'.
         resi_connection (str): Residual connection type. Default: '1conv'.
-        igm_n_feat (int): IGM feature channels (should match embed_dim). Default: 48.
+        igm_n_feat (int): IGM feature channels (should match embed_dim). Default: 132.
         isdm_num_heads (int): ISDM-lite attention heads. Default: 2.
         isdm_ffn_expansion (float): ISDM-lite FFN expansion. Default: 2.66.
     """
@@ -136,15 +136,15 @@ class MambaIRv2LLIESR(nn.Module):
         img_size=64,
         patch_size=1,
         in_chans=3,
-        embed_dim=48,
-        d_state=8,
-        depths=(5, 5, 5, 5),
-        num_heads=(4, 4, 4, 4),
+        embed_dim=132,
+        d_state=16,
+        depths=(4, 4, 4, 4, 4, 4),
+        num_heads=(4, 4, 4, 4, 4, 4),
         window_size=16,
-        inner_rank=32,
-        num_tokens=64,
+        inner_rank=64,
+        num_tokens=128,
         convffn_kernel_size=5,
-        mlp_ratio=1.0,
+        mlp_ratio=2.0,
         qkv_bias=True,
         norm_layer=nn.LayerNorm,
         ape=False,
@@ -152,10 +152,10 @@ class MambaIRv2LLIESR(nn.Module):
         use_checkpoint=False,
         upscale=4,
         img_range=1.,
-        upsampler='pixelshuffledirect',
+        upsampler='pixelshuffle',
         resi_connection='1conv',
         # --- LLIE+SR specific ---
-        igm_n_feat=48,
+        igm_n_feat=132,
         isdm_num_heads=2,
         isdm_ffn_expansion=2.66,
         **kwargs,
@@ -167,9 +167,9 @@ class MambaIRv2LLIESR(nn.Module):
         num_feat = 64
         num_stages = len(depths)
 
-        assert num_stages <= 5, (
-            f"num_stages ({num_stages}) must be <= 5 "
-            f"(IGM produces 5 I_fk levels)"
+        assert num_stages <= 6, (
+            f"num_stages ({num_stages}) must be <= 6 "
+            f"(IGM produces 5 I_fk levels; extra stages share level 0)"
         )
 
         self.img_range = img_range
@@ -435,11 +435,11 @@ class MambaIRv2LLIESR(nn.Module):
             s_fk = self.mini_aspp_stages[k](x_2d)  # [B, C, H, W]
 
             # --- Select I_fk for this stage ---
-            # IGM produces 5 levels [0..4], we use the finest N levels
-            # General formula: i_fk_idx = (5 - num_stages) + k
-            # For N=4: stages [0,1,2,3] → I_fk[1,2,3,4] (skip bottleneck)
-            # For N=3: stages [0,1,2]   → I_fk[2,3,4]
-            i_fk_idx = (5 - num_stages) + k
+            # IGM produces 5 levels [0..4], we use the finest N levels.
+            # General formula clamped to [0, 4]:
+            # For N≤5: may skip coarsest level (e.g. N=4 → I_fk[1..4])
+            # For N=6: first two stages share I_fk[0], rest use I_fk[1..4]
+            i_fk_idx = max(0, min(4, (5 - num_stages) + k))
             i_fk = i_fk_list[i_fk_idx]  # [B, C, H', W']
 
             # --- ISDM-lite: dual modulation ---
