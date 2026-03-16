@@ -70,7 +70,7 @@ network_g:
   upsampler: 'pixelshuffle'
   resi_connection: '1conv'
   # LLIE+SR specific
-  igm_n_feat: 132
+  igm_n_feat: 64
   isdm_num_heads: 2
   isdm_ffn_expansion: 2.66
 

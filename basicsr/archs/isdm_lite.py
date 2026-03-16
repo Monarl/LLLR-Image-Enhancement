@@ -315,8 +315,14 @@ class ISDMLite(nn.Module):
     (I_fk comes from IGM's multi-scale U-Net decoder, S_fk from Mini-ASPP
     which operates at the same resolution as R_fk).
 
+    If IGM's output channels (igm_feat_dim) differ from the backbone's embed_dim,
+    a lightweight 1×1 conv projects IGM features up to dim before cross-attention.
+    This lets IGM keep a small fixed internal width regardless of backbone size.
+
     Args:
-        dim (int): Feature channel dimension (embed_dim from MambaIRv2).
+        dim (int): Backbone feature channel dimension (embed_dim from MambaIRv2).
+        igm_feat_dim (int): Channel dimension of IGM output features. If different
+            from dim, a 1×1 conv adapter is inserted. Default: same as dim.
         num_heads (int): Number of attention heads. Default: 2.
         ffn_expansion_factor (float): FFN hidden expansion. Default: 2.66.
         bias (bool): Whether layers use bias. Default: False.
@@ -325,11 +331,21 @@ class ISDMLite(nn.Module):
     def __init__(
         self,
         dim: int,
+        igm_feat_dim: Optional[int] = None,
         num_heads: int = 2,
         ffn_expansion_factor: float = 2.66,
         bias: bool = False,
     ):
         super().__init__()
+
+        if igm_feat_dim is None:
+            igm_feat_dim = dim
+
+        # Channel adapter: project IGM features to backbone dim if they differ
+        if igm_feat_dim != dim:
+            self.i_fk_proj: nn.Module = nn.Conv2d(igm_feat_dim, dim, kernel_size=1, bias=bias)
+        else:
+            self.i_fk_proj = nn.Identity()
 
         # IMU: Illumination Modulated Unit
         self.imu = ModulationUnit(dim, num_heads, ffn_expansion_factor, bias)
@@ -363,6 +379,9 @@ class ISDMLite(nn.Module):
                 align_corners=False,
             )
 
+        # Project IGM channels to backbone dim if they differ
+        i_fk = self.i_fk_proj(i_fk)
+
         # Stage 1: IMU — modulate with illumination
         r_tilde = self.imu(r_fk, i_fk)  # [B, dim, H, W]
 
@@ -379,6 +398,7 @@ class ISDMLite(nn.Module):
 def create_isdm_lite_stages(
     num_stages: int,
     dim: int,
+    igm_feat_dim: Optional[int] = None,
     num_heads: int = 2,
     ffn_expansion_factor: float = 2.66,
     bias: bool = False,
@@ -387,7 +407,7 @@ def create_isdm_lite_stages(
     Create an nn.ModuleList of independent ISDMLite instances, one per ASSG stage.
 
     Usage in MambaIRv2 forward_features():
-        self.isdm_stages = create_isdm_lite_stages(num_stages=4, dim=48)
+        self.isdm_stages = create_isdm_lite_stages(num_stages=6, dim=132, igm_feat_dim=64)
         ...
         for k, layer in enumerate(self.layers):
             x = layer(x, x_size, params)
@@ -398,7 +418,10 @@ def create_isdm_lite_stages(
 
     Args:
         num_stages: Number of ASSG stages (len(depths) in MambaIRv2).
-        dim: Feature channel dimension (embed_dim).
+        dim: Backbone feature channel dimension (embed_dim).
+        igm_feat_dim: IGM output channels. If None or equal to dim, no adapter
+            is inserted. If different from dim, each ISDMLite gets a 1×1 conv
+            adapter to project IGM features to dim before cross-attention.
         num_heads: Attention heads per modulation unit.
         ffn_expansion_factor: FFN hidden expansion.
         bias: Whether layers use bias.
@@ -407,7 +430,7 @@ def create_isdm_lite_stages(
         nn.ModuleList of ISDMLite instances.
     """
     return nn.ModuleList([
-        ISDMLite(dim, num_heads, ffn_expansion_factor, bias)
+        ISDMLite(dim, igm_feat_dim, num_heads, ffn_expansion_factor, bias)
         for _ in range(num_stages)
     ])
 

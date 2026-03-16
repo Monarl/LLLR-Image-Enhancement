@@ -126,7 +126,9 @@ class MambaIRv2LLIESR(nn.Module):
         img_range (float): Image value range. Default: 1.0.
         upsampler (str): Upsampling method. Default: 'pixelshuffle'.
         resi_connection (str): Residual connection type. Default: '1conv'.
-        igm_n_feat (int): IGM feature channels (should match embed_dim). Default: 132.
+        igm_n_feat (int): IGM feature channels — fixed internal width of IENet,
+            independent of embed_dim. A 1×1 conv adapter in each ISDM-lite stage
+            bridges igm_n_feat → embed_dim when they differ. Default: 64.
         isdm_num_heads (int): ISDM-lite attention heads. Default: 2.
         isdm_ffn_expansion (float): ISDM-lite FFN expansion. Default: 2.66.
     """
@@ -155,7 +157,7 @@ class MambaIRv2LLIESR(nn.Module):
         upsampler='pixelshuffle',
         resi_connection='1conv',
         # --- LLIE+SR specific ---
-        igm_n_feat=132,
+        igm_n_feat=64,
         isdm_num_heads=2,
         isdm_ffn_expansion=2.66,
         **kwargs,
@@ -317,6 +319,7 @@ class MambaIRv2LLIESR(nn.Module):
         self.isdm_stages = create_isdm_lite_stages(
             num_stages=num_stages,
             dim=embed_dim,
+            igm_feat_dim=igm_n_feat,
             num_heads=isdm_num_heads,
             ffn_expansion_factor=isdm_ffn_expansion,
         )

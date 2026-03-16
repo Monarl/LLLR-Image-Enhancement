@@ -50,7 +50,7 @@ network_g:
   mlp_ratio: 2.0
   upsampler: 'pixelshuffle'
   resi_connection: '1conv'
-  igm_n_feat: 132
+  igm_n_feat: 64
   isdm_num_heads: 2
   isdm_ffn_expansion: 2.66
 
