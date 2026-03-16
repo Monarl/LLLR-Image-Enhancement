@@ -39,13 +39,13 @@ network_g:
   in_chans: 3
   img_size: 64
   img_range: 1.
-  embed_dim: 132
-  d_state: 16
+  embed_dim: 96
+  d_state: 8
   depths: [ 4, 4, 4, 4, 4, 4 ]
   num_heads: [ 4, 4, 4, 4, 4, 4 ]
   window_size: 16
-  inner_rank: 64
-  num_tokens: 128
+  inner_rank: 48
+  num_tokens: 96
   convffn_kernel_size: 5
   mlp_ratio: 2.0
   upsampler: 'pixelshuffle'

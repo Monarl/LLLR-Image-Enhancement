@@ -113,13 +113,13 @@ class MambaIRv2LLIESR(nn.Module):
         img_size (int): Input image size. Default: 64.
         patch_size (int): Patch size. Default: 1.
         in_chans (int): Number of input channels. Default: 3.
-        embed_dim (int): Feature dimension. Default: 132.
-        d_state (int): SSM hidden state dimension. Default: 16.
+        embed_dim (int): Feature dimension. Default: 96.
+        d_state (int): SSM hidden state dimension. Default: 8.
         depths (tuple[int]): Depths per ASSG stage. Default: (4, 4, 4, 4, 4, 4).
         num_heads (tuple[int]): Attention heads per stage. Default: (4, 4, 4, 4, 4, 4).
         window_size (int): Window-MHSA window size. Default: 16.
-        inner_rank (int): Prompt decomposition rank. Default: 64.
-        num_tokens (int): Prompt pool size. Default: 128.
+        inner_rank (int): Prompt decomposition rank. Default: 48.
+        num_tokens (int): Prompt pool size. Default: 96.
         convffn_kernel_size (int): ConvFFN kernel size. Default: 5.
         mlp_ratio (float): MLP expansion ratio. Default: 2.0.
         upscale (int): Upsampling factor. Default: 4.
@@ -138,13 +138,13 @@ class MambaIRv2LLIESR(nn.Module):
         img_size=64,
         patch_size=1,
         in_chans=3,
-        embed_dim=132,
-        d_state=16,
+        embed_dim=96,
+        d_state=8,
         depths=(4, 4, 4, 4, 4, 4),
         num_heads=(4, 4, 4, 4, 4, 4),
         window_size=16,
-        inner_rank=64,
-        num_tokens=128,
+        inner_rank=48,
+        num_tokens=96,
         convffn_kernel_size=5,
         mlp_ratio=2.0,
         qkv_bias=True,
