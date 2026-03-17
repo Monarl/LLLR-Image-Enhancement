@@ -891,3 +891,44 @@ class TotalVariationLoss(nn.Module):
         w_tv = torch.pow(x[:, :, :, 1:] - x[:, :, :, :w_x - 1], 2).sum()
 
         return self.loss_weight * 2 * (h_tv / count_h + w_tv / count_w) / batch_size
+
+
+@LOSS_REGISTRY.register()
+class RetinexIlluminationLoss(nn.Module):
+    """Direct supervision of the IGM's predicted illumination map.
+
+    Instead of comparing Y-channels of the final RGB output (indirect),
+    this loss directly supervises the IGM's single-channel illumination
+    map against a target derived from the ground-truth image.
+
+    Target: grayscale luminance of the low-light input, matching the
+    Retinex assumption  I = L * R  =>  L = I / R  ≈ luminance(I) when
+    R is unknown.  In practice we use the inverted luminance that the
+    IGM is trained to predict (same transform as the dataset guidance).
+
+    L_ill = SmoothL1(pred_ill_map, target_gray)
+
+    Args:
+        loss_weight (float): Loss weight. Default: 1.0.
+        reduction (str): 'mean' or 'sum'. Default: 'mean'.
+    """
+
+    def __init__(self, loss_weight=1.0, reduction='mean'):
+        super(RetinexIlluminationLoss, self).__init__()
+        self.loss_weight = loss_weight
+        self.reduction = reduction
+
+    def forward(self, pred_ill_map, target_gray, **kwargs):
+        """
+        Args:
+            pred_ill_map (Tensor): Predicted illumination map [B, 1, H, W]
+                from IGM (sigmoid output, values in [0, 1]).
+            target_gray (Tensor): Target grayscale channel [B, 1, H, W]
+                (the L_g channel from the 2-channel illumination guidance).
+
+        Returns:
+            Tensor: SmoothL1 loss, weighted by loss_weight.
+        """
+        loss = F.smooth_l1_loss(pred_ill_map, target_gray,
+                                reduction=self.reduction)
+        return self.loss_weight * loss

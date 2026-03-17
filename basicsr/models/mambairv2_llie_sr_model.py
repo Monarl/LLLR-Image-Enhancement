@@ -98,7 +98,7 @@ class MambaIRv2LLIESRModel(SRModel):
         )
 
     def init_training_settings(self):
-        """Override to add SSIM, Illumination, and TV losses."""
+        """Override to add SSIM, Illumination, Retinex-Illumination, and TV losses."""
         # Call parent to set up pixel_opt, perceptual_opt, optimizer, scheduler
         super().init_training_settings()
 
@@ -110,12 +110,19 @@ class MambaIRv2LLIESRModel(SRModel):
         else:
             self.cri_ssim = None
 
-        # Illumination loss (Y-channel L1)
+        # Illumination loss (Y-channel L1) — kept for backward compatibility
         if train_opt.get('illumination_opt'):
             self.cri_illumination = build_loss(
                 train_opt['illumination_opt']).to(self.device)
         else:
             self.cri_illumination = None
+
+        # Retinex illumination map loss (direct supervision of IGM output)
+        if train_opt.get('retinex_ill_opt'):
+            self.cri_retinex_ill = build_loss(
+                train_opt['retinex_ill_opt']).to(self.device)
+        else:
+            self.cri_retinex_ill = None
 
         # Total Variation loss
         if train_opt.get('tv_opt'):
@@ -212,7 +219,26 @@ class MambaIRv2LLIESRModel(SRModel):
             l_total += l_light
             loss_dict['l_light'] = l_light
 
-        # --- Loss 5: Total Variation loss (L_tv for spatial smoothness) ---
+        # --- Loss 5: Retinex illumination map loss (direct IGM supervision) ---
+        if self.cri_retinex_ill:
+            # Get the predicted illumination map from the network
+            net = self.net_g.module if hasattr(self.net_g, 'module') else self.net_g
+            pred_ill_map = net._illumination_map  # [B, 1, H, W]
+            # Target: the L_g (grayscale) channel from illumination guidance
+            # gray[:, 1:2] is the inverted grayscale that IGM is trained to predict
+            if self.gray is not None:
+                target_gray = self.gray[:, 1:2, :, :]  # [B, 1, H, W]
+                # Handle spatial size mismatch (gray may not be padded the same)
+                if pred_ill_map.shape[2:] != target_gray.shape[2:]:
+                    target_gray = F.interpolate(
+                        target_gray, size=pred_ill_map.shape[2:],
+                        mode='bilinear', align_corners=False)
+                l_retinex_ill = self.cri_retinex_ill(pred_ill_map, target_gray)
+                if not (torch.isnan(l_retinex_ill) or torch.isinf(l_retinex_ill)):
+                    l_total += l_retinex_ill
+                    loss_dict['l_retinex_ill'] = l_retinex_ill
+
+        # --- Loss 6: Total Variation loss (L_tv for spatial smoothness) ---
         if self.cri_tv:
             l_tv = self.cri_tv(self.output)
             if torch.isnan(l_tv) or torch.isinf(l_tv):
@@ -227,7 +253,12 @@ class MambaIRv2LLIESRModel(SRModel):
         # Backward
         loss_dict['l_total'] = l_total.detach()
         l_total.backward()
-        nn_utils.clip_grad_norm_(self.net_g.parameters(), max_norm=1.0)
+
+        # Tighter gradient clipping (0.05) to stabilize training with
+        # Retinex division, which can produce large gradients when
+        # illumination values are small.
+        grad_clip = self.opt['train'].get('grad_clip_norm', 0.05)
+        nn_utils.clip_grad_norm_(self.net_g.parameters(), max_norm=grad_clip)
 
         # Check gradients for NaN/Inf
         bad_grad = False

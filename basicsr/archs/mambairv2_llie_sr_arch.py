@@ -496,10 +496,18 @@ class MambaIRv2LLIESR(nn.Module):
 
         # --- IGM: illumination features ---
         i_fk_list, illumination_map = self.igm(gray)
-        # Store for potential illumination loss in model class
+        # Store for illumination map supervision in model class
         self._illumination_map = illumination_map
 
-        # --- Normalize x for main backbone ---
+        # --- Retinex decomposition: R = I / L ---
+        # Divide input by predicted illumination to obtain reflectance.
+        # The backbone then works on the pre-brightened reflectance (easier
+        # task: denoise + SR) instead of the raw dark image.
+        ill_3ch = illumination_map.detach().repeat(1, 3, 1, 1)  # [B,3,H,W]
+        ill_3ch = ill_3ch.clamp(min=1e-4)         # prevent division by zero
+        x = torch.clamp(x / ill_3ch, 0.0, 1.0)    # reflectance in [0, 1]
+
+        # --- Normalize reflectance for main backbone ---
         self.mean = self.mean.type_as(x)
         x = (x - self.mean) * self.img_range
 
