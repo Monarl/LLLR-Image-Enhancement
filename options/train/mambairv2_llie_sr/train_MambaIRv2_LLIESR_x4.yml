@@ -95,10 +95,10 @@ train:
 
   scheduler:
     type: MultiStepLR
-    milestones: [ 250000, 400000, 450000, 475000 ]
+    milestones: [ 50000, 75000, 90000, 95000 ]
     gamma: 0.5
 
-  total_iter: 500000
+  total_iter: 100000
   warmup_iter: -1
 
   # Gradient clipping — tighter than default (1.0) to stabilize Retinex
@@ -128,14 +128,14 @@ train:
   perceptual_opt:
     type: PerceptualLoss
     layer_weights:
-      'conv1_2': 0.05
-      'conv2_2': 0.05
-      'conv3_4': 0.1
-      'conv4_4': 0.1
-      'conv5_4': 0.1
+      'conv1_2': 0.1
+      'conv2_2': 0.1
+      'conv3_4': 1
+      'conv4_4': 1
+      'conv5_4': 1
     vgg_type: vgg19
     use_input_norm: true
-    perceptual_weight: !!float 0.1
+    perceptual_weight: !!float 1.0
     style_weight: 0
     range_norm: false
     criterion: l1
