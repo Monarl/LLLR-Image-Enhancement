@@ -177,6 +177,10 @@ val:
       type: calculate_psnr
       crop_border: 4
       test_y_channel: true
+    ssim:
+      type: calculate_ssim
+      crop_border: 4
+      test_y_channel: true
 
 # -----------------------------------------------------------------------------
 # Logging
