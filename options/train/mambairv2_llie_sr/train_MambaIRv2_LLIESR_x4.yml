@@ -73,6 +73,10 @@ network_g:
   igm_n_feat: 48
   isdm_num_heads: 2
   isdm_ffn_expansion: 2.66
+  # Semantic extractor: 'mini_aspp' (default) or 'mobilenet'
+  # - mini_aspp: Lightweight (~220K trainable params), extracts from ASSG features
+  # - mobilenet: MobileNetV3-Small (~2.5M frozen + ~69K trainable), ImageNet-trained
+  semantic_extractor: 'mobilenet'
 
 # -----------------------------------------------------------------------------
 # Paths

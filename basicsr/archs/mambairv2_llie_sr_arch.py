@@ -4,18 +4,27 @@ MambaIRv2 LLIE+SR Architecture
 
 Combines MambaIRv2's ASSG backbone with:
   - IGM (Illumination Guidance Module) — multi-scale illumination features
-  - Mini-ASPP — lightweight internal semantic extraction (replaces HRNet)
+  - Semantic extractor (Mini-ASPP or MobileNetV3) — semantic features for modulation
   - ISDM-lite — dual modulation (illumination + semantic) per ASSG stage
 
+Semantic Extractor Options:
+  1. Mini-ASPP (default): Lightweight internal extraction (~220K params, trainable)
+     - Operates on ASSG output features per stage
+     - Extracts local multi-scale texture context
+
+  2. MobileNetV3-Small: Frozen pretrained backbone (~2.5M params frozen, ~50K trainable)
+     - Operates on input image, provides ImageNet-trained semantic features
+     - Provides true semantic understanding (object/scene recognition)
+
 Data Flow:
-    Input X (LLLR) ──┬──► conv_first ──► [ASSG → Mini-ASPP → ISDM-lite] × N ──► conv_after_body ──► Upsample ──► Ŷ
+    Input X (LLLR) ──┬──► conv_first ──► [ASSG → Semantic → ISDM-lite] × N ──► conv_after_body ──► Upsample ──► Ŷ
                      │                                    ▲
                      └──► (gray guidance) ──► IGM ──► I_fk list ──┘
 
 Each ASSG stage k:
     x = ASSG_k(x)                               # MambaIRv2 state-space + window attention
     x_2d = reshape(x)                            # [B, H*W, C] → [B, C, H, W]
-    S_fk = MiniASPP_k(x_2d)                     # semantic features
+    S_fk = SemanticExtractor(x_2d or input)     # semantic features (Mini-ASPP or MobileNet)
     I_fk = igm_features[idx]                     # illumination features (bilinear interp if needed)
     M_fk = ISDMLite_k(x_2d, I_fk, S_fk)         # dual modulation: IMU(I_fk) → SMU(S_fk)
     x = reshape(M_fk)                            # [B, C, H, W] → [B, H*W, C]
@@ -43,6 +52,13 @@ from basicsr.archs.mambairv2light_arch import (
 from basicsr.archs.igm_module import IGMModule
 from basicsr.archs.mini_aspp import create_mini_aspp_stages
 from basicsr.archs.isdm_lite import create_isdm_lite_stages
+
+# Optional: MobileNetV3-based semantic extractor (requires torchvision)
+try:
+    from basicsr.archs.mobilenet_semantic import create_mobilenet_semantic_extractor
+    MOBILENET_AVAILABLE = True
+except ImportError:
+    MOBILENET_AVAILABLE = False
 
 
 @torch.no_grad()
@@ -106,7 +122,7 @@ class MambaIRv2LLIESR(nn.Module):
 
     Extends MambaIRv2Light by integrating:
       1. IGM (Illumination Guidance Module) — produces multi-scale I_fk
-      2. Mini-ASPP — extracts semantic features S_fk from ASSG output
+      2. Semantic extractor (Mini-ASPP or MobileNetV3) — extracts S_fk
       3. ISDM-lite — dual modulation of ASSG features using I_fk and S_fk
 
     Args:
@@ -129,6 +145,9 @@ class MambaIRv2LLIESR(nn.Module):
         igm_n_feat (int): IGM feature channels (should match embed_dim). Default: 48.
         isdm_num_heads (int): ISDM-lite attention heads. Default: 2.
         isdm_ffn_expansion (float): ISDM-lite FFN expansion. Default: 2.66.
+        semantic_extractor (str): Semantic feature extractor type.
+            'mini_aspp': Lightweight internal ASPP (default, ~220K params).
+            'mobilenet': Frozen MobileNetV3-Small (~2.5M frozen + ~50K trainable).
     """
 
     def __init__(
@@ -158,6 +177,7 @@ class MambaIRv2LLIESR(nn.Module):
         igm_n_feat=48,
         isdm_num_heads=2,
         isdm_ffn_expansion=2.66,
+        semantic_extractor='mini_aspp',  # 'mini_aspp' or 'mobilenet'
         **kwargs,
     ):
         super().__init__()
@@ -304,12 +324,38 @@ class MambaIRv2LLIESR(nn.Module):
         self.igm = IGMModule(n_feat=igm_n_feat)
 
         # ================================================================
-        # 5. Mini-ASPP semantic extraction (one per ASSG stage)
+        # 5. Semantic Feature Extraction (Mini-ASPP or MobileNetV3)
         # ================================================================
-        self.mini_aspp_stages = create_mini_aspp_stages(
-            num_stages=num_stages,
-            in_channels=embed_dim,
-        )
+        self.semantic_extractor_type = semantic_extractor.lower()
+
+        if self.semantic_extractor_type == 'mini_aspp':
+            # Mini-ASPP: lightweight internal semantic extraction (~55K per stage)
+            # Operates on ASSG output features per stage
+            self.mini_aspp_stages = create_mini_aspp_stages(
+                num_stages=num_stages,
+                in_channels=embed_dim,
+            )
+            self.mobilenet_semantic = None
+        elif self.semantic_extractor_type == 'mobilenet':
+            # MobileNetV3-Small: frozen pretrained backbone (~2.5M frozen)
+            # Provides true ImageNet-trained semantic features
+            if not MOBILENET_AVAILABLE:
+                raise ImportError(
+                    "MobileNetV3 semantic extractor requires torchvision. "
+                    "Install with: pip install torchvision"
+                )
+            self.mobilenet_semantic = create_mobilenet_semantic_extractor(
+                embed_dim=embed_dim,
+                num_stages=num_stages,
+                freeze_backbone=True,
+                pretrained=True,
+            )
+            self.mini_aspp_stages = None
+        else:
+            raise ValueError(
+                f"Unknown semantic_extractor: {semantic_extractor}. "
+                f"Choose from: 'mini_aspp', 'mobilenet'"
+            )
 
         # ================================================================
         # 6. ISDM-lite dual modulation (one per ASSG stage)
@@ -400,7 +446,7 @@ class MambaIRv2LLIESR(nn.Module):
     #  Forward: Deep Features with ISDM-lite Modulation
     # ------------------------------------------------------------------
 
-    def forward_features(self, x, i_fk_list, params):
+    def forward_features(self, x, i_fk_list, params, semantic_features=None):
         """
         Deep feature extraction with per-stage ISDM-lite modulation.
 
@@ -409,6 +455,8 @@ class MambaIRv2LLIESR(nn.Module):
             i_fk_list: Multi-scale illumination features from IGM
                        (list of 5 tensors at different spatial scales).
             params: Attention mask parameters dict.
+            semantic_features: Pre-computed semantic features from MobileNetV3
+                              (list of num_stages tensors, or None for Mini-ASPP).
 
         Returns:
             Deep features [B, C, H, W].
@@ -431,8 +479,18 @@ class MambaIRv2LLIESR(nn.Module):
             # --- Convert to 2D for Mini-ASPP and ISDM-lite ---
             x_2d = x.transpose(1, 2).view(B, C, H, W)  # [B, C, H, W]
 
-            # --- Mini-ASPP: extract semantic features ---
-            s_fk = self.mini_aspp_stages[k](x_2d)  # [B, C, H, W]
+            # --- Semantic features: Mini-ASPP per-stage or pre-computed MobileNet ---
+            if self.semantic_extractor_type == 'mini_aspp':
+                s_fk = self.mini_aspp_stages[k](x_2d)  # [B, C, H, W]
+            else:
+                # MobileNetV3: use pre-computed features
+                s_fk = semantic_features[k]  # [B, C, H, W]
+                # Ensure spatial alignment with x_2d
+                if s_fk.shape[2:] != x_2d.shape[2:]:
+                    s_fk = F.interpolate(
+                        s_fk, size=x_2d.shape[2:],
+                        mode='bilinear', align_corners=False
+                    )
 
             # --- Select I_fk for this stage ---
             # IGM produces 5 levels [0..4], we use the finest N levels
@@ -505,7 +563,17 @@ class MambaIRv2LLIESR(nn.Module):
         # task: denoise + SR) instead of the raw dark image.
         ill_3ch = illumination_map.detach().repeat(1, 3, 1, 1)  # [B,3,H,W]
         ill_3ch = ill_3ch.clamp(min=1e-4)         # prevent division by zero
-        x = torch.clamp(x / ill_3ch, 0.0, 1.0)    # reflectance in [0, 1]
+        reflectance = torch.clamp(x / ill_3ch, 0.0, 1.0)    # reflectance in [0, 1]
+
+        # --- MobileNetV3 semantic features (extract from input image) ---
+        semantic_features = None
+        if self.semantic_extractor_type == 'mobilenet':
+            # Extract semantic features from original input (before Retinex)
+            # This provides true semantic understanding from ImageNet-trained features
+            semantic_features = self.mobilenet_semantic(x)
+
+        # Use reflectance as input to backbone
+        x = reflectance
 
         # --- Normalize reflectance for main backbone ---
         self.mean = self.mean.type_as(x)
@@ -522,7 +590,7 @@ class MambaIRv2LLIESR(nn.Module):
         if self.upsampler == 'pixelshuffle':
             x = self.conv_first(x)
             x = self.conv_after_body(
-                self.forward_features(x, i_fk_list, params)
+                self.forward_features(x, i_fk_list, params, semantic_features)
             ) + x
             x = self.conv_before_upsample(x)
             x = self.conv_last(self.upsample(x))
@@ -530,14 +598,14 @@ class MambaIRv2LLIESR(nn.Module):
         elif self.upsampler == 'pixelshuffledirect':
             x = self.conv_first(x)
             x = self.conv_after_body(
-                self.forward_features(x, i_fk_list, params)
+                self.forward_features(x, i_fk_list, params, semantic_features)
             ) + x
             x = self.upsample(x)
 
         elif self.upsampler == 'nearest+conv':
             x = self.conv_first(x)
             x = self.conv_after_body(
-                self.forward_features(x, i_fk_list, params)
+                self.forward_features(x, i_fk_list, params, semantic_features)
             ) + x
             x = self.conv_before_upsample(x)
             x = self.lrelu(self.conv_up1(
@@ -552,7 +620,7 @@ class MambaIRv2LLIESR(nn.Module):
             # Denoising / CAR (no upsampling)
             x_first = self.conv_first(x)
             res = self.conv_after_body(
-                self.forward_features(x_first, i_fk_list, params)
+                self.forward_features(x_first, i_fk_list, params, semantic_features)
             ) + x_first
             x = x + self.conv_last(res)
 

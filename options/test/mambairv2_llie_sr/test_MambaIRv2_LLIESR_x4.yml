@@ -53,6 +53,8 @@ network_g:
   igm_n_feat: 48
   isdm_num_heads: 2
   isdm_ffn_expansion: 2.66
+  # Semantic extractor: 'mini_aspp' (default) or 'mobilenet'
+  semantic_extractor: 'mobilenet'
 
 # -----------------------------------------------------------------------------
 # Paths
