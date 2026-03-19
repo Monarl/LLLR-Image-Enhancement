@@ -36,7 +36,7 @@ class MambaIRv2LLIESRModel(SRModel):
         backbone parameters (conv_first, layers, norm, conv_after_body,
         upsample) are placed in a separate param group with
         ``lr = base_lr * backbone_lr_scale``, while the new LLIE modules
-        (igm, mini_aspp_stages, isdm_stages) use the full base lr.
+        (igm, semantic extractor heads, isdm_stages) use the full base lr.
 
         If ``backbone_lr_scale`` is absent or None the method falls back to
         the standard single-group behaviour (identical to SRModel).
@@ -52,11 +52,16 @@ class MambaIRv2LLIESRModel(SRModel):
         logger = get_root_logger()
         logger.info(
             f'Differential LR: backbone_lr_scale={backbone_lr_scale}. '
-            f'New modules (igm / mini_aspp / isdm) use full lr; '
+            f'New modules (igm / semantic / isdm) use full lr; '
             f'backbone uses lr * {backbone_lr_scale}.'
         )
 
-        NEW_MODULE_PREFIXES = ('igm.', 'mini_aspp_stages.', 'isdm_stages.')
+        NEW_MODULE_PREFIXES = (
+            'igm.',
+            'mini_aspp_stages.',
+            'mobilenet_semantic.',
+            'isdm_stages.',
+        )
 
         backbone_params = []
         new_module_params = []
@@ -254,9 +259,8 @@ class MambaIRv2LLIESRModel(SRModel):
         loss_dict['l_total'] = l_total.detach()
         l_total.backward()
 
-        # Tighter gradient clipping (0.05) to stabilize training with
-        # Retinex division, which can produce large gradients when
-        # illumination values are small.
+        # Keep conservative gradient clipping because illumination guidance
+        # supervision and dual modulation can still spike gradients.
         grad_clip = self.opt['train'].get('grad_clip_norm', 0.05)
         nn_utils.clip_grad_norm_(self.net_g.parameters(), max_norm=grad_clip)
 

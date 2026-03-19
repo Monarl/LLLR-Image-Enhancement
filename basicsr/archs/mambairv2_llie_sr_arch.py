@@ -15,11 +15,13 @@ Semantic Extractor Options:
   2. MobileNetV3-Small: Frozen pretrained backbone (~2.5M params frozen, ~50K trainable)
      - Operates on input image, provides ImageNet-trained semantic features
      - Provides true semantic understanding (object/scene recognition)
+     - Produces stage-specific multi-scale semantic maps for ASSG modulation
 
 Data Flow:
     Input X (LLLR) ──┬──► conv_first ──► [ASSG → Semantic → ISDM-lite] × N ──► conv_after_body ──► Upsample ──► Ŷ
                      │                                    ▲
-                     └──► (gray guidance) ──► IGM ──► I_fk list ──┘
+                     ├──► (gray guidance) ──► IGM ──► I_fk list ──┘
+                     └──► (auxiliary Retinex) ──► illumination_map, reflectance
 
 Each ASSG stage k:
     x = ASSG_k(x)                               # MambaIRv2 state-space + window attention
@@ -456,7 +458,7 @@ class MambaIRv2LLIESR(nn.Module):
                        (list of 5 tensors at different spatial scales).
             params: Attention mask parameters dict.
             semantic_features: Pre-computed semantic features from MobileNetV3
-                              (list of num_stages tensors, or None for Mini-ASPP).
+                              (list of stage-specific tensors, or None for Mini-ASPP).
 
         Returns:
             Deep features [B, C, H, W].
@@ -479,11 +481,11 @@ class MambaIRv2LLIESR(nn.Module):
             # --- Convert to 2D for Mini-ASPP and ISDM-lite ---
             x_2d = x.transpose(1, 2).view(B, C, H, W)  # [B, C, H, W]
 
-            # --- Semantic features: Mini-ASPP per-stage or pre-computed MobileNet ---
+            # --- Semantic features: Mini-ASPP per-stage or MobileNet stage cache ---
             if self.semantic_extractor_type == 'mini_aspp':
                 s_fk = self.mini_aspp_stages[k](x_2d)  # [B, C, H, W]
             else:
-                # MobileNetV3: use pre-computed features
+                # MobileNetV3: use pre-computed stage-specific feature
                 s_fk = semantic_features[k]  # [B, C, H, W]
                 # Ensure spatial alignment with x_2d
                 if s_fk.shape[2:] != x_2d.shape[2:]:
@@ -558,26 +560,25 @@ class MambaIRv2LLIESR(nn.Module):
         self._illumination_map = illumination_map
 
         # --- Retinex decomposition: R = I / L ---
-        # Divide input by predicted illumination to obtain reflectance.
-        # The backbone then works on the pre-brightened reflectance (easier
-        # task: denoise + SR) instead of the raw dark image.
+        # Keep the auxiliary reflectance path for illumination supervision and
+        # ablations, but drive the ASSG backbone with the raw low-light input.
         ill_3ch = illumination_map.detach().repeat(1, 3, 1, 1)  # [B,3,H,W]
         ill_3ch = ill_3ch.clamp(min=1e-4)         # prevent division by zero
         reflectance = torch.clamp(x / ill_3ch, 0.0, 1.0)    # reflectance in [0, 1]
+        self._reflectance = reflectance
 
         # --- MobileNetV3 semantic features (extract from input image) ---
         semantic_features = None
         if self.semantic_extractor_type == 'mobilenet':
-            # Extract semantic features from original input (before Retinex)
-            # This provides true semantic understanding from ImageNet-trained features
+            # Extract stage-specific semantic features from raw low-light input.
             semantic_features = self.mobilenet_semantic(x)
 
-        # Use reflectance as input to backbone
-        x = reflectance
+        # Use the raw low-light input for the MambaIRv2 backbone.
+        backbone_input = x
 
-        # --- Normalize reflectance for main backbone ---
-        self.mean = self.mean.type_as(x)
-        x = (x - self.mean) * self.img_range
+        # --- Normalize raw input for main backbone ---
+        self.mean = self.mean.type_as(backbone_input)
+        x = (backbone_input - self.mean) * self.img_range
 
         # --- Attention masks ---
         attn_mask = self.calculate_mask([h, w]).to(x.device)

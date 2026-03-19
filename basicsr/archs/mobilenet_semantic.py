@@ -1,14 +1,6 @@
 """
 MobileNetV3-Small Semantic Feature Extractor
 
-Replaces Mini-ASPP with a frozen pretrained MobileNetV3-Small backbone for
-semantic feature extraction. Provides true semantic understanding (trained on
-ImageNet) at a fraction of HRNet's ~65M cost (~2.5M params, frozen).
-
-Unlike Mini-ASPP which operates on ASSG intermediate features, this module
-processes the input image directly and provides multi-scale semantic features
-at each ASSG stage through feature projection and interpolation.
-
 Architecture:
     Input Image [B, 3, H, W]
          │
@@ -16,31 +8,38 @@ Architecture:
     ┌───────────────────────────────────────┐
     │ MobileNetV3-Small (Frozen)            │
     │   ├── Layer 0-3:  features_low  (24ch)│
-    │   ├── Layer 4-8:  features_mid  (40ch)│
-    │   └── Layer 9-12: features_high (96ch)│
+    │   ├── Layer 4-8:  features_mid  (48ch)│
+    │   └── Layer 9-11: features_high (96ch)│
     └───────────────────────────────────────┘
          │
          ▼
     ┌───────────────────────────────────────┐
-    │ Feature Fusion & Projection           │
-    │   Concat multi-scale → Conv → embed_dim│
+    │ Per-scale Projection                  │
+    │   Project each tap → embed_dim        │
     └───────────────────────────────────────┘
          │
-    S_fk [B, embed_dim, H, W] (per stage)
+         ▼
+    ┌───────────────────────────────────────┐
+    │ Per-stage Multi-scale Fusion          │
+    │   Stage k learns its own mixture of   │
+    │   low/mid/high semantic taps          │
+    └───────────────────────────────────────┘
+         │
+    S_fk [B, embed_dim, H, W] (unique per stage)
 
 Usage similar to Mini-ASPP but extracts features from the original image:
     # In MambaIRv2LLIESR
     s_features = self.semantic_extractor(input_image)  # Extract once
     for k, layer in enumerate(self.layers):
         x = layer(x, ...)
-        s_fk = s_features[k]  # Use cached feature for this stage
+        s_fk = s_features[k]  # Stage-specific MobileNet semantic feature
         m_fk = self.isdm_stages[k](x, i_fk, s_fk)
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, Tuple, List
+from typing import List
 
 try:
     from torchvision.models import mobilenet_v3_small, MobileNet_V3_Small_Weights
@@ -124,20 +123,38 @@ class MobileNetV3SemanticExtractor(nn.Module):
         self.tap_indices = [3, 8, 11]  # Feature tap points
         self.tap_channels = [24, 48, 96]  # Output channels at each tap
 
-        # Total channels after concatenation (upsampled to same resolution)
-        total_channels = sum(self.tap_channels)  # 24 + 48 + 96 = 168
+        self.num_scales = len(self.tap_channels)
 
-        # Fusion: combine multi-scale features → project to embed_dim
-        self.fusion = nn.Sequential(
-            nn.Conv2d(total_channels, embed_dim * 2, kernel_size=1, bias=False),
-            nn.BatchNorm2d(embed_dim * 2),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(embed_dim * 2, embed_dim, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(embed_dim),
-            nn.ReLU(inplace=True),
-        )
+        # Project each MobileNet tap to the ASSG embedding dimension first.
+        self.scale_projectors = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv2d(channels, embed_dim, kernel_size=1, bias=False),
+                nn.BatchNorm2d(embed_dim),
+                nn.ReLU(inplace=True),
+            )
+            for channels in self.tap_channels
+        ])
 
-        # Per-stage refinement (lightweight) - allows stage-specific adaptation
+        # Each ASSG stage gets its own multi-scale fusion head
+        self.stage_fusion = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv2d(embed_dim * self.num_scales, embed_dim * 2,
+                          kernel_size=1, bias=False),
+                nn.BatchNorm2d(embed_dim * 2),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(embed_dim * 2, embed_dim, kernel_size=3,
+                          padding=1, bias=False),
+                nn.BatchNorm2d(embed_dim),
+                nn.ReLU(inplace=True),
+            )
+            for _ in range(num_stages)
+        ])
+
+        # Stage-dependent scale weights encourage shallow ASSG stages to use
+        # lower-level taps first and deeper stages to use higher-level taps.
+        self.stage_scale_logits = nn.Parameter(self._init_stage_scale_logits())
+
+        # Lightweight post-fusion refinement per stage.
         self.stage_refine = nn.ModuleList([
             nn.Sequential(
                 nn.Conv2d(embed_dim, embed_dim, kernel_size=3, padding=1,
@@ -157,6 +174,12 @@ class MobileNetV3SemanticExtractor(nn.Module):
             'std',
             torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
         )
+
+    def _init_stage_scale_logits(self) -> torch.Tensor:
+        """Bias early stages toward low-level taps and later stages toward high-level taps."""
+        stage_positions = torch.linspace(0.0, 1.0, steps=self.num_stages).unsqueeze(1)
+        scale_positions = torch.linspace(0.0, 1.0, steps=self.num_scales).unsqueeze(0)
+        return -2.0 * torch.abs(stage_positions - scale_positions)
 
     def _extract_backbone_features(self, x: torch.Tensor) -> List[torch.Tensor]:
         """
@@ -203,37 +226,25 @@ class MobileNetV3SemanticExtractor(nn.Module):
         with torch.set_grad_enabled(not self.freeze_backbone):
             multi_scale_features = self._extract_backbone_features(x_norm)
 
-        # Upsample all features to the highest resolution (H/4 from tap[0])
-        target_size = multi_scale_features[0].shape[2:]  # H/4 x W/4
-
-        upsampled_features = []
-        for feat in multi_scale_features:
-            if feat.shape[2:] != target_size:
+        projected_features = []
+        for projector, feat in zip(self.scale_projectors, multi_scale_features):
+            feat = projector(feat)
+            if feat.shape[2:] != (H, W):
                 feat = F.interpolate(
-                    feat, size=target_size,
+                    feat, size=(H, W),
                     mode='bilinear', align_corners=False
                 )
-            upsampled_features.append(feat)
+            projected_features.append(feat)
 
-        # Concatenate multi-scale features
-        fused = torch.cat(upsampled_features, dim=1)  # [B, 168, H/4, W/4]
-
-        # Apply fusion to get embed_dim channels
-        fused = self.fusion(fused)  # [B, embed_dim, H/4, W/4]
-
-        # Upsample to input resolution for compatibility with ASSG output
-        fused = F.interpolate(
-            fused, size=(H, W),
-            mode='bilinear', align_corners=False
-        )  # [B, embed_dim, H, W]
-
-        # Generate per-stage features with stage-specific refinement
         stage_features = []
         for k in range(self.num_stages):
-            s_fk = self.stage_refine[k](fused)
-            if k > 0:
-                # Add residual connection from fused for deeper stages
-                s_fk = s_fk + fused
+            scale_weights = torch.softmax(self.stage_scale_logits[k], dim=0)
+            weighted_features = [
+                feat * scale_weights[scale_idx]
+                for scale_idx, feat in enumerate(projected_features)
+            ]
+            fused = self.stage_fusion[k](torch.cat(weighted_features, dim=1))
+            s_fk = self.stage_refine[k](fused) + fused
             stage_features.append(s_fk)
 
         return stage_features
@@ -329,10 +340,20 @@ if __name__ == "__main__":
     assert len(backbone_grads) == 0, "Backbone should have no gradients when frozen"
     print("Backbone correctly frozen (no gradients)")
 
-    # Check that fusion and refinement have gradients
-    fusion_grads = [p.grad for p in extractor_grad.fusion.parameters() if p.grad is not None]
-    assert len(fusion_grads) > 0, "Fusion should have gradients"
-    print("Fusion layers have gradients")
+    # Check that stage-wise semantic heads have gradients
+    projector_grads = [
+        p.grad for p in extractor_grad.scale_projectors.parameters()
+        if p.grad is not None
+    ]
+    assert len(projector_grads) > 0, "Scale projectors should have gradients"
+    print("Scale projectors have gradients")
+
+    fusion_grads = [
+        p.grad for p in extractor_grad.stage_fusion.parameters()
+        if p.grad is not None
+    ]
+    assert len(fusion_grads) > 0, "Stage fusion should have gradients"
+    print("Stage fusion layers have gradients")
 
     refine_grads = [p.grad for p in extractor_grad.stage_refine.parameters() if p.grad is not None]
     assert len(refine_grads) > 0, "Stage refinement should have gradients"
