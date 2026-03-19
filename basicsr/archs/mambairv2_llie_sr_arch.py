@@ -43,6 +43,7 @@ from basicsr.archs.mambairv2light_arch import (
 from basicsr.archs.igm_module import IGMModule
 from basicsr.archs.mini_aspp import create_mini_aspp_stages
 from basicsr.archs.isdm_lite import create_isdm_lite_stages
+from basicsr.archs.mobilevit import mobilevit_s_backbone
 
 
 @torch.no_grad()
@@ -306,10 +307,16 @@ class MambaIRv2LLIESR(nn.Module):
         # ================================================================
         # 5. Mini-ASPP semantic extraction (one per ASSG stage)
         # ================================================================
-        self.mini_aspp_stages = create_mini_aspp_stages(
-            num_stages=num_stages,
-            in_channels=embed_dim,
-        )
+        # self.mini_aspp_stages = create_mini_aspp_stages(
+        #     num_stages=num_stages,
+        #     in_channels=embed_dim,
+        # )
+        self.semantic_net = mobilevit_s_backbone()
+
+        self.sem_projectors = nn.ModuleList([
+            nn.Conv2d(c, embed_dim, kernel_size=1) 
+            for c in self.semantic_net.out_channels
+        ])
 
         # ================================================================
         # 6. ISDM-lite dual modulation (one per ASSG stage)
@@ -400,7 +407,7 @@ class MambaIRv2LLIESR(nn.Module):
     #  Forward: Deep Features with ISDM-lite Modulation
     # ------------------------------------------------------------------
 
-    def forward_features(self, x, i_fk_list, params):
+    def forward_features(self, x, i_fk_list, s_fk_list, params):
         """
         Deep feature extraction with per-stage ISDM-lite modulation.
 
@@ -425,29 +432,22 @@ class MambaIRv2LLIESR(nn.Module):
         H, W = x_size
 
         for k, layer in enumerate(self.layers):
-            # --- ASSG block (Window-MHSA + ASSM) ---
-            x = layer(x, x_size, params)  # [B, H*W, C]
+            x = layer(x, x_size, params)
+            x_2d = x.transpose(1, 2).view(B, C, H, W)
 
-            # --- Convert to 2D for Mini-ASPP and ISDM-lite ---
-            x_2d = x.transpose(1, 2).view(B, C, H, W)  # [B, C, H, W]
+            idx =  k
+            
+            i_fk = i_fk_list[idx]
 
-            # --- Mini-ASPP: extract semantic features ---
-            s_fk = self.mini_aspp_stages[k](x_2d)  # [B, C, H, W]
+            s_fk_raw = s_fk_list[idx]
+            s_fk = self.sem_projectors[idx](s_fk_raw)
 
-            # --- Select I_fk for this stage ---
-            # IGM produces 5 levels [0..4], we use the finest N levels
-            # General formula: i_fk_idx = (5 - num_stages) + k
-            # For N=4: stages [0,1,2,3] → I_fk[1,2,3,4] (skip bottleneck)
-            # For N=3: stages [0,1,2]   → I_fk[2,3,4]
-            i_fk_idx = (5 - num_stages) + k
-            i_fk = i_fk_list[i_fk_idx]  # [B, C, H', W']
+            if s_fk.shape[2:] != x_2d.shape[2:]:
+                s_fk = F.interpolate(s_fk, size=x_2d.shape[2:], mode='bilinear', align_corners=False)
 
-            # --- ISDM-lite: dual modulation ---
-            # IMU: modulate with illumination → SMU: modulate with semantics
-            m_fk = self.isdm_stages[k](x_2d, i_fk, s_fk)  # [B, C, H, W]
-
-            # --- Convert back to 1D for next ASSG block ---
-            x = m_fk.flatten(2).transpose(1, 2)  # [B, H*W, C]
+            m_fk = self.isdm_stages[k](x_2d, i_fk, s_fk)
+            
+            x = m_fk.flatten(2).transpose(1, 2)
 
         x = self.norm(x)  # [B, H*W, C]
         x = self.patch_unembed(x, x_size)  # [B, C, H, W]
@@ -472,7 +472,7 @@ class MambaIRv2LLIESR(nn.Module):
         """
         # --- Padding to multiple of window_size ---
         h_ori, w_ori = x.size()[-2], x.size()[-1]
-        mod = self.window_size
+        mod = max(32, self.window_size)
         h_pad = ((h_ori + mod - 1) // mod) * mod - h_ori
         w_pad = ((w_ori + mod - 1) // mod) * mod - w_ori
         h, w = h_ori + h_pad, w_ori + w_pad
@@ -499,6 +499,8 @@ class MambaIRv2LLIESR(nn.Module):
         # Store for potential illumination loss in model class
         self._illumination_map = illumination_map
 
+        s_fk_list = self.semantic_net(x)
+
         # --- Normalize x for main backbone ---
         self.mean = self.mean.type_as(x)
         x = (x - self.mean) * self.img_range
@@ -514,7 +516,7 @@ class MambaIRv2LLIESR(nn.Module):
         if self.upsampler == 'pixelshuffle':
             x = self.conv_first(x)
             x = self.conv_after_body(
-                self.forward_features(x, i_fk_list, params)
+                self.forward_features(x, i_fk_list, s_fk_list, params)
             ) + x
             x = self.conv_before_upsample(x)
             x = self.conv_last(self.upsample(x))
@@ -522,14 +524,14 @@ class MambaIRv2LLIESR(nn.Module):
         elif self.upsampler == 'pixelshuffledirect':
             x = self.conv_first(x)
             x = self.conv_after_body(
-                self.forward_features(x, i_fk_list, params)
+                self.forward_features(x, i_fk_list, s_fk_list, params)
             ) + x
             x = self.upsample(x)
 
         elif self.upsampler == 'nearest+conv':
             x = self.conv_first(x)
             x = self.conv_after_body(
-                self.forward_features(x, i_fk_list, params)
+                self.forward_features(x, i_fk_list, s_fk_list, params)
             ) + x
             x = self.conv_before_upsample(x)
             x = self.lrelu(self.conv_up1(
@@ -544,7 +546,7 @@ class MambaIRv2LLIESR(nn.Module):
             # Denoising / CAR (no upsampling)
             x_first = self.conv_first(x)
             res = self.conv_after_body(
-                self.forward_features(x_first, i_fk_list, params)
+                self.forward_features(x_first, i_fk_list, s_fk_list, params)
             ) + x_first
             x = x + self.conv_last(res)
 
