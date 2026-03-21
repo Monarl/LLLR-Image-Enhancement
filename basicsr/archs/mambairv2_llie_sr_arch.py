@@ -574,7 +574,7 @@ class MambaIRv2LLIESR(nn.Module):
             semantic_features = self.mobilenet_semantic(x)
 
         # Use the raw low-light input for the MambaIRv2 backbone.
-        backbone_input = x
+        backbone_input = reflectance
 
         # --- Normalize raw input for main backbone ---
         self.mean = self.mean.type_as(backbone_input)
