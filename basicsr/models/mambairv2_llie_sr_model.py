@@ -8,15 +8,39 @@ Super-Resolution model. Extends the base SRModel to handle:
   - Multiple losses: L1 + Perceptual + SSIM + Illumination + TV
 """
 
+import random
 import torch
 import torch.nn.functional as F
 import torch.nn.utils as nn_utils
 from collections import OrderedDict
 
+from basicsr.archs.mambairv2_llie_sr_arch import compute_illumination_guidance
 from basicsr.losses import build_loss
 from basicsr.utils import get_root_logger
 from basicsr.utils.registry import MODEL_REGISTRY
 from basicsr.models.sr_model import SRModel
+
+
+class MixingAugment:
+    """Batch-level mixup for paired restoration targets."""
+
+    def __init__(self, mixup_beta, use_identity, device):
+        beta = torch.tensor([mixup_beta], device=device, dtype=torch.float32)
+        self.dist = torch.distributions.beta.Beta(beta, beta)
+        self.device = device
+        self.use_identity = use_identity
+
+    def mixup(self, target, input_):
+        lam = self.dist.rsample((1, 1)).item()
+        r_index = torch.randperm(target.size(0), device=self.device)
+        target = lam * target + (1 - lam) * target[r_index, :]
+        input_ = lam * input_ + (1 - lam) * input_[r_index, :]
+        return target, input_
+
+    def __call__(self, target, input_):
+        if self.use_identity and random.randint(0, 1) == 0:
+            return target, input_
+        return self.mixup(target, input_)
 
 
 @MODEL_REGISTRY.register()
@@ -108,6 +132,19 @@ class MambaIRv2LLIESRModel(SRModel):
         super().init_training_settings()
 
         train_opt = self.opt['train']
+        mixing_opts = train_opt.get('mixing_augs') or {}
+        self.mixing_flag = mixing_opts.get('mixup', False)
+        self.mixing_augmentation = None
+        if self.mixing_flag:
+            mixup_beta = mixing_opts.get('mixup_beta', 1.2)
+            use_identity = mixing_opts.get('use_identity', False)
+            self.mixing_augmentation = MixingAugment(
+                mixup_beta=mixup_beta,
+                use_identity=use_identity,
+                device=self.device)
+            get_root_logger().info(
+                f'Enable mixup augmentation: beta={mixup_beta}, '
+                f'use_identity={use_identity}.')
 
         # SSIM loss
         if train_opt.get('ssim_opt'):
@@ -151,6 +188,21 @@ class MambaIRv2LLIESRModel(SRModel):
         """Forward + backward with illumination guidance and multi-loss."""
         logger = get_root_logger()
         self.optimizer_g.zero_grad()
+
+        lq_input = self.lq
+        gt_input = self.gt
+        gray_input = self.gray
+
+        if self.mixing_flag:
+            gt_input, lq_input = self.mixing_augmentation(gt_input, lq_input)
+            gray_input = None
+
+        if gray_input is None:
+            gray_input = compute_illumination_guidance(lq_input)
+
+        self.lq = lq_input
+        self.gt = gt_input
+        self.gray = gray_input
 
         # Forward: pass both LQ and illumination guidance
         self.output = self.net_g(self.lq, self.gray)
@@ -261,7 +313,7 @@ class MambaIRv2LLIESRModel(SRModel):
 
         # Keep conservative gradient clipping because illumination guidance
         # supervision and dual modulation can still spike gradients.
-        grad_clip = self.opt['train'].get('grad_clip_norm', 0.05)
+        grad_clip = self.opt['train'].get('grad_clip_norm', 0.01)
         nn_utils.clip_grad_norm_(self.net_g.parameters(), max_norm=grad_clip)
 
         # Check gradients for NaN/Inf

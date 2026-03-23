@@ -560,11 +560,11 @@ class MambaIRv2LLIESR(nn.Module):
         self._illumination_map = illumination_map
 
         # --- Retinex decomposition: R = I / L ---
-        # Keep the auxiliary reflectance path for illumination supervision and
-        # ablations, but drive the ASSG backbone with the raw low-light input.
-        ill_3ch = illumination_map.detach().repeat(1, 3, 1, 1)  # [B,3,H,W]
-        ill_3ch = ill_3ch.clamp(min=1e-4)         # prevent division by zero
-        reflectance = torch.clamp(x / ill_3ch, 0.0, 1.0)    # reflectance in [0, 1]
+        # Keep gradients flowing through the division so reconstruction losses
+        # can directly refine the illumination estimator.
+        ill_3ch = illumination_map.repeat(1, 3, 1, 1)  # [B, 3, H, W]
+        ill_3ch = ill_3ch.clamp(min=1e-4)  # prevent division by zero
+        reflectance = torch.clamp(x / ill_3ch, 0.0, 1.0)
         self._reflectance = reflectance
 
         # --- MobileNetV3 semantic features (extract from input image) ---
@@ -573,7 +573,6 @@ class MambaIRv2LLIESR(nn.Module):
             # Extract stage-specific semantic features from raw low-light input.
             semantic_features = self.mobilenet_semantic(x)
 
-        # Use the raw low-light input for the MambaIRv2 backbone.
         backbone_input = reflectance
 
         # --- Normalize raw input for main backbone ---
