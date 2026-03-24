@@ -92,10 +92,10 @@ path:
 # -----------------------------------------------------------------------------
 train:
   optim_g:
-    type: Adam
+    type: AdamW
     lr: !!float 2e-4
     weight_decay: !!float 1e-4
-    betas: [ 0.9, 0.99 ]
+    betas: [ 0.9, 0.999 ]
 
   scheduler:
     type: MultiStepLR
@@ -117,7 +117,7 @@ train:
   # backbone_lr_scale: 0.1
 
   mixing_augs:
-    mixup: false
+    mixup: true
     mixup_beta: 1.2
     use_identity: false
 
@@ -166,7 +166,7 @@ train:
   # output directly, encouraging accurate Retinex decomposition.
   retinex_ill_opt:
     type: RetinexIlluminationLoss
-    loss_weight: !!float 1.0
+    loss_weight: !!float 0.5
     reduction: mean
 
   # Loss 6: Total Variation loss (L_tv for spatial smoothness)

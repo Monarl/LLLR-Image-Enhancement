@@ -562,7 +562,7 @@ class MambaIRv2LLIESR(nn.Module):
         # --- Retinex decomposition: R = I / L ---
         # Keep gradients flowing through the division so reconstruction losses
         # can directly refine the illumination estimator.
-        ill_3ch = illumination_map.repeat(1, 3, 1, 1)  # [B, 3, H, W]
+        ill_3ch = illumination_map.detach().repeat(1, 3, 1, 1)  # [B, 3, H, W]
         ill_3ch = ill_3ch.clamp(min=1e-4)  # prevent division by zero
         reflectance = torch.clamp(x / ill_3ch, 0.0, 1.0)
         self._reflectance = reflectance
