@@ -58,7 +58,7 @@ network_g:
   in_chans: 3
   img_size: 64
   img_range: 1.
-  embed_dim: 48
+  embed_dim: 64
   d_state: 8
   depths: [ 6, 6, 6, 6 ]
   num_heads: [ 4, 4, 4, 4 ]
@@ -67,10 +67,10 @@ network_g:
   num_tokens: 64
   convffn_kernel_size: 5
   mlp_ratio: 2.0
-  upsampler: 'pixelshuffledirect'
+  upsampler: 'pixelshuffle'
   resi_connection: '1conv'
   # LLIE+SR specific
-  igm_n_feat: 48
+  igm_n_feat: 64
   isdm_num_heads: 2
   isdm_ffn_expansion: 2.66
   # Semantic extractor: 'mini_aspp' (default) or 'mobilenet'
@@ -107,7 +107,7 @@ train:
 
   # Gradient clipping — tighter than default (1.0) to stabilize Retinex
   # division which can produce large gradients for small illumination values
-  grad_clip_norm: 0.5
+  grad_clip_norm: 0.05
 
   # Differential learning rates (optional)
   # Set to a float (e.g. 0.1) to train backbone at lr*backbone_lr_scale
@@ -155,9 +155,11 @@ train:
     window_size: 11
     loss_weight: !!float 0.1
 
-  # Loss 4: Disabled. Keep illumination supervision on the IGM output
-  # instead of the final RGB prediction.
-  illumination_opt: ~
+  # Loss 4: Illumination loss (L_light = ||Y(pred) - Y(gt)||_1)
+  illumination_opt:
+    type: IlluminationLoss
+    loss_weight: !!float 1.0
+    reduction: mean
 
   # Loss 5: Retinex illumination map loss (direct IGM supervision)
   # SmoothL1(predicted_ill_map, target_grayscale) — supervises the IGM
