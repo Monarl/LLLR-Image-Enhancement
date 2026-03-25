@@ -1,0 +1,162 @@
+# =============================================================================
+# MambaIRv2 LLIE-SR U-Net Training Config (x4 upscale)
+# Parallel experiment config - keeps the original LLIE-SR config untouched.
+# =============================================================================
+
+name: MambaIRv2_LLIESRUNet_x4
+model_type: MambaIRv2LLIESRModel
+scale: 4
+num_gpu: 1
+manual_seed: 10
+
+datasets:
+  train:
+    task: SR
+    name: RELLISUR_Train
+    type: PairedImageDataset
+    dataroot_gt: datasets/RELLISUR-Dataset/Train/NLHR/X4
+    dataroot_lq: datasets/RELLISUR-Dataset/Train/LLLR
+    direct_gt_match: true
+    io_backend:
+      type: disk
+    use_illguidance: true
+    gt_size: 192
+    use_hflip: true
+    use_rot: true
+    use_shuffle: true
+    num_worker_per_gpu: 8
+    batch_size_per_gpu: 2
+    dataset_enlarge_ratio: 100
+    prefetch_mode: ~
+
+  val:
+    name: RELLISUR_Val
+    type: PairedImageDataset
+    dataroot_gt: datasets/RELLISUR-Dataset/Val/NLHR/X4
+    dataroot_lq: datasets/RELLISUR-Dataset/Val/LLLR
+    direct_gt_match: true
+    meta_info_file: datasets/RELLISUR-Dataset/meta_info_RELLISUR_val_quick_X4.txt
+    use_illguidance: true
+    io_backend:
+      type: disk
+
+network_g:
+  type: MambaIRv2LLIESRUNet
+  upscale: 4
+  in_chans: 3
+  img_size: 64
+  img_range: 1.
+  embed_dim: 64
+  d_state: 8
+  encoder_depths: [ 4, 4 ]
+  latent_depth: 6
+  decoder_depths: [ 4, 4 ]
+  refinement_depth: 2
+  encoder_heads: [ 4, 4 ]
+  latent_heads: 8
+  decoder_heads: [ 4, 4 ]
+  refinement_heads: 4
+  stage_window_sizes: [ 16, 8, 4, 8, 16, 16 ]
+  inner_rank: 32
+  num_tokens: 64
+  convffn_kernel_size: 5
+  mlp_ratio: 2.0
+  upsampler: 'pixelshuffle'
+  resi_connection: '1conv'
+  igm_n_feat: 64
+  isdm_num_heads: 2
+  isdm_ffn_expansion: 2.66
+  semantic_extractor: 'mobilenet'
+
+path:
+  pretrain_network_g: ~
+  strict_load_g: false
+  resume_state: ~
+
+train:
+  optim_g:
+    type: AdamW
+    lr: !!float 2e-4
+    weight_decay: !!float 1e-4
+    betas: [ 0.9, 0.999 ]
+
+  scheduler:
+    type: MultiStepLR
+    milestones: [ 50000, 75000, 90000, 95000 ]
+    gamma: 0.5
+
+  total_iter: 100000
+  warmup_iter: -1
+  grad_clip_norm: 0.05
+
+  backbone_lr_scale: ~
+
+  mixing_augs:
+    mixup: true
+    mixup_beta: 1.2
+    use_identity: false
+
+  pixel_opt:
+    type: L1Loss
+    loss_weight: 1.0
+    reduction: mean
+
+  perceptual_opt:
+    type: PerceptualLoss
+    layer_weights:
+      'conv1_2': 0.1
+      'conv2_2': 0.1
+      'conv3_4': 1
+      'conv4_4': 1
+      'conv5_4': 1
+    vgg_type: vgg19
+    use_input_norm: true
+    perceptual_weight: !!float 1.0
+    style_weight: 0
+    range_norm: false
+    criterion: l1
+
+  ssim_opt:
+    type: SSIMLoss
+    window_size: 11
+    loss_weight: !!float 0.1
+
+  illumination_opt:
+    type: IlluminationLoss
+    loss_weight: !!float 1.0
+    reduction: mean
+
+  retinex_ill_opt:
+    type: RetinexIlluminationLoss
+    loss_weight: !!float 0.5
+    reduction: mean
+
+  tv_opt:
+    type: TotalVariationLoss
+    loss_weight: !!float 0.01
+
+val:
+  val_freq: !!float 5e3
+  save_img: false
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 4
+      test_y_channel: true
+    ssim:
+      type: calculate_ssim
+      crop_border: 4
+      test_y_channel: true
+
+logger:
+  print_freq: 200
+  save_checkpoint_freq: !!float 5e3
+  use_tb_logger: true
+  wandb:
+    project: ~
+    resume_id: ~
+
+dist_params:
+  backend: nccl
+  port: 29500
