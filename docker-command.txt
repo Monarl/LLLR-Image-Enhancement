@@ -18,6 +18,7 @@ chmod +x setup.sh
 ./setup.sh
 cd LLLR-Image-Enhancement
 python basicsr/train.py -opt options/train/mambairv2_llie_sr/train_MambaIRv2_LLIESR_x4.yml
+python basicsr/test.py -opt options/test/mambairv2_llie_sr/test_MambaIRv2_LLIESR_x4.yml
 
 - To make it work in background: 
 Ctrl + B then press D
