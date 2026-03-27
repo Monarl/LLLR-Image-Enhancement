@@ -13,19 +13,10 @@ datasets:
   test_1:
     name: RELLISUR_Test
     type: PairedImageDataset
-    dataroot_gt: datasets/RELLISUR-Dataset/Test/NLHR-Duplicates/X4
+    dataroot_gt: datasets/RELLISUR-Dataset/Test/NLHR/X4
     dataroot_lq: datasets/RELLISUR-Dataset/Test/LLLR
+    direct_gt_match: true
     meta_info_file: datasets/RELLISUR-Dataset/meta_info_RELLISUR_test_X4.txt
-    use_illguidance: true
-    io_backend:
-      type: disk
-
-  test_2:
-    name: RELLISUR_Val
-    type: PairedImageDataset
-    dataroot_gt: datasets/RELLISUR-Dataset/Val/NLHR-Duplicates/X4
-    dataroot_lq: datasets/RELLISUR-Dataset/Val/LLLR
-    meta_info_file: datasets/RELLISUR-Dataset/meta_info_RELLISUR_val_X4.txt
     use_illguidance: true
     io_backend:
       type: disk
@@ -67,7 +58,7 @@ path:
 # Validation Settings
 # -----------------------------------------------------------------------------
 val:
-  save_img: true
+  save_img: false
   suffix: ~
 
   metrics:

@@ -1,5 +1,5 @@
 """
-MambaIRv2 LLIE+SR Model Class
+MambaIRv2 LLIE+SR Model Class.
 
 Training/testing logic for the joint Low-Light Image Enhancement and
 Super-Resolution model. Extends the base SRModel to handle:
@@ -8,26 +8,21 @@ Super-Resolution model. Extends the base SRModel to handle:
   - Multiple losses: L1 + Perceptual + SSIM + Illumination + TV
 """
 
+from collections import OrderedDict
+
 import torch
 import torch.nn.functional as F
 import torch.nn.utils as nn_utils
-from collections import OrderedDict
 
 from basicsr.losses import build_loss
+from basicsr.models.sr_model import SRModel
 from basicsr.utils import get_root_logger
 from basicsr.utils.registry import MODEL_REGISTRY
-from basicsr.models.sr_model import SRModel
 
 
 @MODEL_REGISTRY.register()
 class MambaIRv2LLIESRModel(SRModel):
-    """MambaIRv2 LLIE+SR model with illumination guidance.
-
-    Extends SRModel to:
-      1. Load illumination guidance ('gray') from dataset in feed_data()
-      2. Pass gray to network in optimize_parameters() and test()
-      3. Use multi-loss training: L1 + Perceptual + SSIM + Illumination + TV
-    """
+    """MambaIRv2 LLIE+SR model with illumination guidance."""
 
     def setup_optimizers(self):
         """Override to support differential learning rates.
@@ -41,46 +36,44 @@ class MambaIRv2LLIESRModel(SRModel):
         If ``backbone_lr_scale`` is absent or None the method falls back to
         the standard single-group behaviour (identical to SRModel).
         """
-        train_opt = self.opt['train']
-        backbone_lr_scale = train_opt.get('backbone_lr_scale', None)
+        train_opt = self.opt["train"]
+        backbone_lr_scale = train_opt.get("backbone_lr_scale", None)
 
         if backbone_lr_scale is None:
-            # Standard single-group optimiser (SRModel behaviour)
             super().setup_optimizers()
             return
 
         logger = get_root_logger()
         logger.info(
-            f'Differential LR: backbone_lr_scale={backbone_lr_scale}. '
-            f'New modules (igm / mini_aspp / isdm) use full lr; '
-            f'backbone uses lr * {backbone_lr_scale}.'
+            f"Differential LR: backbone_lr_scale={backbone_lr_scale}. "
+            f"New modules (igm / mini_aspp / isdm) use full lr; "
+            f"backbone uses lr * {backbone_lr_scale}."
         )
 
-        NEW_MODULE_PREFIXES = ('igm.', 'mini_aspp_stages.', 'isdm_stages.')
+        new_module_prefixes = ("igm.", "mini_aspp_stages.", "isdm_stages.")
 
         backbone_params = []
         new_module_params = []
         for name, param in self.net_g.named_parameters():
             if not param.requires_grad:
-                logger.warning(f'Params {name} will not be optimized.')
+                logger.warning(f"Params {name} will not be optimized.")
                 continue
-            if any(name.startswith(p) for p in NEW_MODULE_PREFIXES):
+            if any(name.startswith(prefix) for prefix in new_module_prefixes):
                 new_module_params.append(param)
             else:
                 backbone_params.append(param)
 
-        optim_type = train_opt['optim_g'].pop('type')
-        base_lr = train_opt['optim_g']['lr']
-        optim_kwargs = {k: v for k, v in train_opt['optim_g'].items()
-                        if k != 'lr'}
+        optim_type = train_opt["optim_g"].pop("type")
+        base_lr = train_opt["optim_g"]["lr"]
+        optim_kwargs = {k: v for k, v in train_opt["optim_g"].items() if k != "lr"}
 
         param_groups = [
-            {'params': backbone_params,
-             'lr': base_lr * backbone_lr_scale,
-             'name': 'backbone'},
-            {'params': new_module_params,
-             'lr': base_lr,
-             'name': 'new_modules'},
+            {
+                "params": backbone_params,
+                "lr": base_lr * backbone_lr_scale,
+                "name": "backbone",
+            },
+            {"params": new_module_params, "lr": base_lr, "name": "new_modules"},
         ]
 
         self.optimizer_g = self.get_optimizer(
@@ -89,186 +82,162 @@ class MambaIRv2LLIESRModel(SRModel):
         self.optimizers.append(self.optimizer_g)
 
         logger.info(
-            f'  backbone params : {sum(p.numel() for p in backbone_params):,} '
-            f'(lr={base_lr * backbone_lr_scale:.2e})'
+            f"  backbone params : {sum(p.numel() for p in backbone_params):,} "
+            f"(lr={base_lr * backbone_lr_scale:.2e})"
         )
         logger.info(
-            f'  new module params: {sum(p.numel() for p in new_module_params):,} '
-            f'(lr={base_lr:.2e})'
+            f"  new module params: {sum(p.numel() for p in new_module_params):,} "
+            f"(lr={base_lr:.2e})"
         )
 
     def init_training_settings(self):
-        """Override to add SSIM, Illumination, Retinex-Illumination, and TV losses."""
-        # Call parent to set up pixel_opt, perceptual_opt, optimizer, scheduler
+        """Override to add SSIM, illumination, Retinex-illumination, and TV losses."""
         super().init_training_settings()
 
-        train_opt = self.opt['train']
+        train_opt = self.opt["train"]
 
-        # SSIM loss
-        if train_opt.get('ssim_opt'):
-            self.cri_ssim = build_loss(train_opt['ssim_opt']).to(self.device)
+        if train_opt.get("ssim_opt"):
+            self.cri_ssim = build_loss(train_opt["ssim_opt"]).to(self.device)
         else:
             self.cri_ssim = None
 
-        # Illumination loss (Y-channel L1) — kept for backward compatibility
-        if train_opt.get('illumination_opt'):
-            self.cri_illumination = build_loss(
-                train_opt['illumination_opt']).to(self.device)
+        if train_opt.get("illumination_opt"):
+            self.cri_illumination = build_loss(train_opt["illumination_opt"]).to(
+                self.device
+            )
         else:
             self.cri_illumination = None
 
-        # Retinex illumination map loss (direct supervision of IGM output)
-        if train_opt.get('retinex_ill_opt'):
-            self.cri_retinex_ill = build_loss(
-                train_opt['retinex_ill_opt']).to(self.device)
+        if train_opt.get("retinex_ill_opt"):
+            self.cri_retinex_ill = build_loss(train_opt["retinex_ill_opt"]).to(
+                self.device
+            )
         else:
             self.cri_retinex_ill = None
 
-        # Total Variation loss
-        if train_opt.get('tv_opt'):
-            self.cri_tv = build_loss(train_opt['tv_opt']).to(self.device)
+        if train_opt.get("tv_opt"):
+            self.cri_tv = build_loss(train_opt["tv_opt"]).to(self.device)
         else:
             self.cri_tv = None
 
     def feed_data(self, data):
         """Load LQ, GT, and illumination guidance from data dict."""
-        self.lq = data['lq'].to(self.device)
-        if 'gt' in data:
-            self.gt = data['gt'].to(self.device)
-        # Illumination guidance (2-channel: [IG(L_g), L_g])
-        # Computed in paired_image_dataset.py when use_illguidance=True
-        if 'gray' in data:
-            self.gray = data['gray'].to(self.device)
+        self.lq = data["lq"].to(self.device)
+        if "gt" in data:
+            self.gt = data["gt"].to(self.device)
+        if "gray" in data:
+            self.gray = data["gray"].to(self.device)
         else:
-            self.gray = None  # Architecture will compute internally
+            self.gray = None
 
     def optimize_parameters(self, current_iter):
         """Forward + backward with illumination guidance and multi-loss."""
         logger = get_root_logger()
         self.optimizer_g.zero_grad()
 
-        # Forward: pass both LQ and illumination guidance
         self.output = self.net_g(self.lq, self.gray)
 
-        # NaN/Inf check on output
         if torch.isnan(self.output).any() or torch.isinf(self.output).any():
             logger.warning(
-                f'[Iter {current_iter}] NaN/Inf in network output. '
-                f'Skipping batch.'
+                f"[Iter {current_iter}] NaN/Inf in network output. Skipping batch."
             )
             return
 
         l_total = 0
         loss_dict = OrderedDict()
 
-        # --- Loss 1: Pixel loss (L_rec = ||pred - gt||_1) ---
         if self.cri_pix:
             l_pix = self.cri_pix(self.output, self.gt)
             if torch.isnan(l_pix) or torch.isinf(l_pix):
                 logger.warning(
-                    f'[Iter {current_iter}] NaN/Inf in pixel loss. '
-                    f'Skipping batch.'
+                    f"[Iter {current_iter}] NaN/Inf in pixel loss. Skipping batch."
                 )
                 return
             l_total += l_pix
-            loss_dict['l_pix'] = l_pix
+            loss_dict["l_pix"] = l_pix
 
-        # --- Loss 2: Perceptual loss (L_perc = VGG feature L1) ---
         if self.cri_perceptual:
             l_percep, l_style = self.cri_perceptual(self.output, self.gt)
             if l_percep is not None:
                 if torch.isnan(l_percep) or torch.isinf(l_percep):
                     logger.warning(
-                        f'[Iter {current_iter}] NaN/Inf in perceptual loss. '
-                        f'Skipping batch.'
+                        f"[Iter {current_iter}] NaN/Inf in perceptual loss. "
+                        f"Skipping batch."
                     )
                     return
                 l_total += l_percep
-                loss_dict['l_percep'] = l_percep
+                loss_dict["l_percep"] = l_percep
             if l_style is not None:
                 if torch.isnan(l_style) or torch.isinf(l_style):
                     logger.warning(
-                        f'[Iter {current_iter}] NaN/Inf in style loss. '
-                        f'Skipping batch.'
+                        f"[Iter {current_iter}] NaN/Inf in style loss. Skipping batch."
                     )
                     return
                 l_total += l_style
-                loss_dict['l_style'] = l_style
+                loss_dict["l_style"] = l_style
 
-        # --- Loss 3: SSIM loss (L_ssim = 1 - SSIM(pred, gt)) ---
         if self.cri_ssim:
             l_ssim = self.cri_ssim(self.output, self.gt)
             if torch.isnan(l_ssim) or torch.isinf(l_ssim):
                 logger.warning(
-                    f'[Iter {current_iter}] NaN/Inf in SSIM loss. '
-                    f'Skipping batch.'
+                    f"[Iter {current_iter}] NaN/Inf in SSIM loss. Skipping batch."
                 )
                 return
             l_total += l_ssim
-            loss_dict['l_ssim'] = l_ssim
+            loss_dict["l_ssim"] = l_ssim
 
-        # --- Loss 4: Illumination loss (L_light = ||Y(pred) - Y(gt)||_1) ---
         if self.cri_illumination:
             l_light = self.cri_illumination(self.output, self.gt)
             if torch.isnan(l_light) or torch.isinf(l_light):
                 logger.warning(
-                    f'[Iter {current_iter}] NaN/Inf in illumination loss. '
-                    f'Skipping batch.'
+                    f"[Iter {current_iter}] NaN/Inf in illumination loss. "
+                    f"Skipping batch."
                 )
                 return
             l_total += l_light
-            loss_dict['l_light'] = l_light
+            loss_dict["l_light"] = l_light
 
-        # --- Loss 5: Retinex illumination map loss (direct IGM supervision) ---
         if self.cri_retinex_ill:
-            # Get the predicted illumination map from the network
-            net = self.net_g.module if hasattr(self.net_g, 'module') else self.net_g
-            pred_ill_map = net._illumination_map  # [B, 1, H, W]
-            # Target: the L_g (grayscale) channel from illumination guidance
-            # gray[:, 1:2] is the inverted grayscale that IGM is trained to predict
+            net = self.net_g.module if hasattr(self.net_g, "module") else self.net_g
+            pred_ill_map = net._illumination_map
             if self.gray is not None:
-                target_gray = self.gray[:, 1:2, :, :]  # [B, 1, H, W]
-                # Handle spatial size mismatch (gray may not be padded the same)
+                target_gray = self.gray[:, 1:2, :, :]
                 if pred_ill_map.shape[2:] != target_gray.shape[2:]:
                     target_gray = F.interpolate(
-                        target_gray, size=pred_ill_map.shape[2:],
-                        mode='bilinear', align_corners=False)
+                        target_gray,
+                        size=pred_ill_map.shape[2:],
+                        mode="bilinear",
+                        align_corners=False,
+                    )
                 l_retinex_ill = self.cri_retinex_ill(pred_ill_map, target_gray)
                 if not (torch.isnan(l_retinex_ill) or torch.isinf(l_retinex_ill)):
                     l_total += l_retinex_ill
-                    loss_dict['l_retinex_ill'] = l_retinex_ill
+                    loss_dict["l_retinex_ill"] = l_retinex_ill
 
-        # --- Loss 6: Total Variation loss (L_tv for spatial smoothness) ---
         if self.cri_tv:
             l_tv = self.cri_tv(self.output)
             if torch.isnan(l_tv) or torch.isinf(l_tv):
                 logger.warning(
-                    f'[Iter {current_iter}] NaN/Inf in TV loss. '
-                    f'Skipping batch.'
+                    f"[Iter {current_iter}] NaN/Inf in TV loss. Skipping batch."
                 )
                 return
             l_total += l_tv
-            loss_dict['l_tv'] = l_tv
+            loss_dict["l_tv"] = l_tv
 
-        # Backward
-        loss_dict['l_total'] = l_total.detach()
+        loss_dict["l_total"] = l_total.detach()
         l_total.backward()
 
-        # Tighter gradient clipping (0.05) to stabilize training with
-        # Retinex division, which can produce large gradients when
-        # illumination values are small.
-        grad_clip = self.opt['train'].get('grad_clip_norm', 0.05)
+        grad_clip = self.opt["train"].get("grad_clip_norm", 0.05)
         nn_utils.clip_grad_norm_(self.net_g.parameters(), max_norm=grad_clip)
 
-        # Check gradients for NaN/Inf
         bad_grad = False
-        for name, p in self.net_g.named_parameters():
-            if p.grad is not None and (
-                torch.isnan(p.grad).any() or torch.isinf(p.grad).any()
+        for name, param in self.net_g.named_parameters():
+            if param.grad is not None and (
+                torch.isnan(param.grad).any() or torch.isinf(param.grad).any()
             ):
                 logger.warning(
-                    f'[Iter {current_iter}] NaN/Inf gradient in {name}. '
-                    f'Skipping update.'
+                    f"[Iter {current_iter}] NaN/Inf gradient in {name}. "
+                    f"Skipping update."
                 )
                 bad_grad = True
                 break
@@ -277,115 +246,33 @@ class MambaIRv2LLIESRModel(SRModel):
             self.optimizer_g.zero_grad()
             try:
                 for state in list(self.optimizer_g.state.values()):
-                    for k, v in list(state.items()):
-                        if isinstance(v, torch.Tensor):
-                            v.zero_()
+                    for key, value in list(state.items()):
+                        if isinstance(value, torch.Tensor):
+                            value.zero_()
             except Exception:
-                logger.warning(
-                    'Failed to fully clear optimizer state tensors.'
-                )
+                logger.warning("Failed to fully clear optimizer state tensors.")
             return
 
         self.optimizer_g.step()
-
         self.log_dict = self.reduce_loss_dict(loss_dict)
 
         if self.ema_decay > 0:
             self.model_ema(decay=self.ema_decay)
 
     def test(self):
-        """Inference with partitioning (adapted from MambaIRv2LightModel).
+        """Run full-image inference with consistent illumination guidance.
 
-        Splits LQ into overlapping patches (~200×200), processes each
-        independently (gray=None → computed per-patch by the arch),
-        and merges results.  This avoids OOM on full-resolution images
-        (e.g. 625×625 RELLISUR val/test).
+        This follows the same evaluation pattern used by UltraIS: feed the
+        full low-light input and its full gray guidance in one forward pass,
+        and let the architecture handle internal padding. Avoids visible
+        square seams from per-tile Retinex guidance recomputation.
         """
-        _, C, h, w = self.lq.size()
-        split_token_h = h // 200 + 1
-        split_token_w = w // 200 + 1
+        net = self.net_g_ema if hasattr(self, "net_g_ema") else self.net_g
+        gray = getattr(self, "gray", None)
 
-        # Padding so dimensions are divisible by split_token counts
-        mod_pad_h, mod_pad_w = 0, 0
-        if h % split_token_h != 0:
-            mod_pad_h = split_token_h - h % split_token_h
-        if w % split_token_w != 0:
-            mod_pad_w = split_token_w - w % split_token_w
-        img = F.pad(self.lq, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
-        _, _, H, W = img.size()
-        split_h = H // split_token_h
-        split_w = W // split_token_w
-
-        # Overlap shave
-        shave_h = split_h // 10
-        shave_w = split_w // 10
-        scale = self.opt.get('scale', 1)
-        ral = H // split_h
-        row = W // split_w
-
-        # Build partition slices (with overlap)
-        slices = []
-        for i in range(ral):
-            for j in range(row):
-                if i == 0 and i == ral - 1:
-                    top = slice(i * split_h, (i + 1) * split_h)
-                elif i == 0:
-                    top = slice(i * split_h, (i + 1) * split_h + shave_h)
-                elif i == ral - 1:
-                    top = slice(i * split_h - shave_h, (i + 1) * split_h)
-                else:
-                    top = slice(i * split_h - shave_h,
-                                (i + 1) * split_h + shave_h)
-                if j == 0 and j == row - 1:
-                    left = slice(j * split_w, (j + 1) * split_w)
-                elif j == 0:
-                    left = slice(j * split_w, (j + 1) * split_w + shave_w)
-                elif j == row - 1:
-                    left = slice(j * split_w - shave_w, (j + 1) * split_w)
-                else:
-                    left = slice(j * split_w - shave_w,
-                                 (j + 1) * split_w + shave_w)
-                slices.append((top, left))
-
-        # Extract partitions
-        img_chops = [img[..., top, left] for top, left in slices]
-
-        # Choose model
-        net = (self.net_g_ema if hasattr(self, 'net_g_ema')
-               else self.net_g)
         net.eval()
-
         with torch.no_grad():
-            outputs = []
-            for chop in img_chops:
-                # gray=None → arch computes illumination guidance per-patch
-                out = net(chop, None)
-                outputs.append(out)
+            self.output = net(self.lq, gray)
 
-            _img = torch.zeros(1, C, H * scale, W * scale)
-            for i in range(ral):
-                for j in range(row):
-                    top = slice(i * split_h * scale,
-                                (i + 1) * split_h * scale)
-                    left = slice(j * split_w * scale,
-                                 (j + 1) * split_w * scale)
-                    _top = (slice(0, split_h * scale) if i == 0
-                            else slice(shave_h * scale,
-                                       (shave_h + split_h) * scale))
-                    _left = (slice(0, split_w * scale) if j == 0
-                             else slice(shave_w * scale,
-                                        (shave_w + split_w) * scale))
-                    _img[..., top, left] = \
-                        outputs[i * row + j][..., _top, _left]
-            self.output = _img
-
-        if not hasattr(self, 'net_g_ema'):
+        if not hasattr(self, "net_g_ema"):
             self.net_g.train()
-
-        # Remove padding
-        _, _, h_out, w_out = self.output.size()
-        self.output = self.output[
-            :, :,
-            :h_out - mod_pad_h * scale,
-            :w_out - mod_pad_w * scale
-        ]

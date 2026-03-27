@@ -11,3 +11,4 @@ test_*.py
 tmp*
 samples/
 learning_docs/
+results/
