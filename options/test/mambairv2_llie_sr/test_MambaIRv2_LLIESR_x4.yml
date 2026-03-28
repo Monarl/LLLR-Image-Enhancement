@@ -13,19 +13,9 @@ datasets:
   test_1:
     name: RELLISUR_Test
     type: PairedImageDataset
-    dataroot_gt: datasets/RELLISUR-Dataset/Test/NLHR-Duplicates/X4
+    dataroot_gt: datasets/RELLISUR-Dataset/Test/NLHR/X4
     dataroot_lq: datasets/RELLISUR-Dataset/Test/LLLR
-    meta_info_file: datasets/RELLISUR-Dataset/meta_info_RELLISUR_test_X4.txt
-    use_illguidance: true
-    io_backend:
-      type: disk
-
-  test_2:
-    name: RELLISUR_Val
-    type: PairedImageDataset
-    dataroot_gt: datasets/RELLISUR-Dataset/Val/NLHR-Duplicates/X4
-    dataroot_lq: datasets/RELLISUR-Dataset/Val/LLLR
-    meta_info_file: datasets/RELLISUR-Dataset/meta_info_RELLISUR_val_X4.txt
+    direct_gt_match: true
     use_illguidance: true
     io_backend:
       type: disk
@@ -58,7 +48,7 @@ network_g:
 # Paths
 # -----------------------------------------------------------------------------
 path:
-  pretrain_network_g: ~
+  pretrain_network_g: experiments/pretrained_models/net_g_latest_mobilevit.pth
   strict_load_g: true
 
 # -----------------------------------------------------------------------------
