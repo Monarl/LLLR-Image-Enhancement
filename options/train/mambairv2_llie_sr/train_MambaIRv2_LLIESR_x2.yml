@@ -27,7 +27,7 @@ datasets:
     # Returns 'gray' [2, H, W] key in data dict
     use_illguidance: true
 
-    gt_size: 192
+    gt_size: 128
     use_hflip: true
     use_rot: true
 
