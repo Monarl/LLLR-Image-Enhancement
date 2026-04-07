@@ -1,0 +1,205 @@
+# =============================================================================
+# MambaIRv2 LLIE+SR Training Config (x2 upscale)
+# Joint Low-Light Enhancement + Super-Resolution on RELLISUR dataset
+# =============================================================================
+
+name: MambaIRv2_LLIESR_x2
+model_type: MambaIRv2LLIESRModel
+scale: 2
+num_gpu: 1
+manual_seed: 10
+
+# -----------------------------------------------------------------------------
+# Dataset
+# -----------------------------------------------------------------------------
+datasets:
+  train:
+    task: SR
+    name: RELLISUR_Train
+    type: PairedImageDataset
+    dataroot_gt: datasets/RELLISUR-Dataset/Train/NLHR/X2
+    dataroot_lq: datasets/RELLISUR-Dataset/Train/LLLR
+    direct_gt_match: true
+    io_backend:
+      type: disk
+
+    # Illumination guidance: computes IG(L_g) = A(L_g) + B(L_g) at load time
+    # Returns 'gray' [2, H, W] key in data dict
+    use_illguidance: true
+
+    gt_size: 192
+    use_hflip: true
+    use_rot: true
+
+    # Data loader
+    use_shuffle: true
+    num_worker_per_gpu: 8
+    batch_size_per_gpu: 8
+    dataset_enlarge_ratio: 100
+    prefetch_mode: ~
+
+  val:
+    name: RELLISUR_Val
+    type: PairedImageDataset
+    dataroot_gt: datasets/RELLISUR-Dataset/Val/NLHR/X2
+    dataroot_lq: datasets/RELLISUR-Dataset/Val/LLLR
+    direct_gt_match: true
+    meta_info_file: datasets/RELLISUR-Dataset/meta_info_RELLISUR_val_quick_X2.txt
+    use_illguidance: true
+    io_backend:
+      type: disk
+
+# -----------------------------------------------------------------------------
+# Network Architecture
+# -----------------------------------------------------------------------------
+network_g:
+  type: MambaIRv2LLIESR
+  upscale: 2
+  in_chans: 3
+  img_size: 64
+  img_range: 1.
+  embed_dim: 48
+  d_state: 8
+  depths: [ 6, 6, 6, 6 ]
+  num_heads: [ 4, 4, 4, 4 ]
+  window_size: 16
+  inner_rank: 32
+  num_tokens: 64
+  convffn_kernel_size: 5
+  mlp_ratio: 2.0
+  upsampler: 'pixelshuffledirect'
+  resi_connection: '1conv'
+  # LLIE+SR specific
+  igm_n_feat: 48
+  isdm_num_heads: 2
+  isdm_ffn_expansion: 2.66
+  # Semantic extractor: 'mini_aspp' (default) or 'mobilenet'
+  # - mini_aspp: Lightweight (~220K trainable params), extracts from ASSG features
+  # - mobilenet: MobileNetV3-Small (~2.5M frozen + ~69K trainable), ImageNet-trained
+  semantic_extractor: 'mobilenet'
+
+# -----------------------------------------------------------------------------
+# Paths
+# -----------------------------------------------------------------------------
+path:
+  pretrain_network_g: ~
+  # pretrain_network_g: experiments/pretrained_models/mambairv2_lightSR_x2.pth
+  strict_load_g: false
+  resume_state: ~
+
+# -----------------------------------------------------------------------------
+# Training Settings
+# -----------------------------------------------------------------------------
+train:
+  optim_g:
+    type: Adam
+    lr: !!float 2e-4  # Keep same or scale to 2.8e-4 for larger batch
+    weight_decay: 0
+    betas: [ 0.9, 0.99 ]
+
+  scheduler:
+    type: MultiStepLR
+    milestones: [ 50000, 75000, 90000, 95000 ]
+    gamma: 0.5
+
+  total_iter: 100000
+  warmup_iter: -1
+
+  # Gradient clipping — tighter than default (1.0) to stabilize Retinex
+  # division which can produce large gradients for small illumination values
+  grad_clip_norm: 0.05
+
+  # Differential learning rates (optional)
+  # Set to a float (e.g. 0.1) to train backbone at lr*backbone_lr_scale
+  # and igm/mini_aspp_stages/isdm_stages at full lr.
+  # Set to ~ to disable (single lr for all params).
+  backbone_lr_scale: ~
+  # backbone_lr_scale: 0.1
+
+  # ---------------------------------------------------------------------------
+  # Loss Functions
+  # L_total = L_rec + lambda_perc*L_perc + lambda_ssim*L_ssim + lambda_light*L_light + lambda_tv*L_tv
+  # ---------------------------------------------------------------------------
+
+  # Loss 1: Pixel loss (L_rec = ||pred - gt||_1)
+  pixel_opt:
+    type: L1Loss
+    loss_weight: 1.0
+    reduction: mean
+
+  # Loss 2: Perceptual loss (VGG19 feature matching)
+  # Reduced weights for better balance with other losses
+  perceptual_opt:
+    type: PerceptualLoss
+    layer_weights:
+      'conv1_2': 0.1
+      'conv2_2': 0.1
+      'conv3_4': 1
+      'conv4_4': 1
+      'conv5_4': 1
+    vgg_type: vgg19
+    use_input_norm: true
+    perceptual_weight: !!float 1.0
+    style_weight: 0
+    range_norm: false
+    criterion: l1
+
+  # Loss 3: SSIM loss (L_ssim = 1 - SSIM(pred, gt))
+  ssim_opt:
+    type: SSIMLoss
+    window_size: 11
+    loss_weight: !!float 0.1
+
+  # Loss 4: Illumination loss (L_light = ||Y(pred) - Y(gt)||_1)
+  illumination_opt:
+    type: IlluminationLoss
+    loss_weight: !!float 1.0
+    reduction: mean
+
+  # Loss 5: Retinex illumination map loss (direct IGM supervision)
+  # SmoothL1(predicted_ill_map, target_grayscale) — supervises the IGM
+  # output directly, encouraging accurate Retinex decomposition.
+  retinex_ill_opt:
+    type: RetinexIlluminationLoss
+    loss_weight: !!float 0.5
+    reduction: mean
+
+  # Loss 6: Total Variation loss (L_tv for spatial smoothness)
+  tv_opt:
+    type: TotalVariationLoss
+    loss_weight: !!float 0.01
+
+# -----------------------------------------------------------------------------
+# Validation Settings
+# -----------------------------------------------------------------------------
+val:
+  val_freq: !!float 5e3
+  save_img: false
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 2
+      test_y_channel: true
+    ssim:
+      type: calculate_ssim
+      crop_border: 2
+      test_y_channel: true
+
+# -----------------------------------------------------------------------------
+# Logging
+# -----------------------------------------------------------------------------
+logger:
+  print_freq: 200
+  save_checkpoint_freq: !!float 5e3
+  use_tb_logger: true
+  wandb:
+    project: ~
+    resume_id: ~
+
+# -----------------------------------------------------------------------------
+# Distributed Training
+# -----------------------------------------------------------------------------
+dist_params:
+  backend: nccl
+  port: 29500
