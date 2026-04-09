@@ -53,7 +53,7 @@ network_g:
 # -----------------------------------------------------------------------------
 path:
   # Set this to your x2 checkpoint
-  pretrain_network_g: ~
+  pretrain_network_g: experiments/pretrained_models/net_g_30000_mobilenet_x2.pth
   strict_load_g: true
 
 # -----------------------------------------------------------------------------
