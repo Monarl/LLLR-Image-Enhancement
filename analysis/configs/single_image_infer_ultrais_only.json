@@ -1,0 +1,31 @@
+{
+  "workspace_root": "../..",
+  "device": "cuda",
+  "input_image": "datasets/RELLISUR-Dataset/Test/LLLR/00018-3.0.png",
+  "output_root": "analysis/outputs/single_image_outputs",
+  "models": [
+    {
+      "name": "ultrais",
+      "label": "UltraIS",
+      "enabled": true,
+      "module_root": "UltraIS-main",
+      "ctor": {
+        "module": "basicsr.models.archs.UltraIS_arch",
+        "name": "CSDLLSRNetv9_7_5"
+      },
+      "kwargs": {
+        "scale": 2
+      },
+      "checkpoint": "UltraIS-main/experiments/pretrained_models/net_g_147000_x2.pth",
+      "param_key": "params",
+      "strict": true,
+      "max_missing_keys": 0,
+      "max_unexpected_keys": 0,
+      "inference_impl": "ultrais_test_wrapper",
+      "input_mode": "rgb_gray",
+      "pad_to": 16,
+      "output_scale": 2,
+      "output_dir": "ultrais"
+    }
+  ]
+}

@@ -1,0 +1,148 @@
+{
+  "workspace_root": "../..",
+  "device": "cuda",
+  "input_image": "datasets/RELLISUR-Dataset/Test/LLLR/00311-3.0.png",
+  "output_root": "analysis/outputs/single_image_outputs",
+  "models": [
+    {
+      "name": "ours_lliesr",
+      "manual_seed": 10,
+      "label": "Ours",
+      "enabled": true,
+      "module_root": ".",
+      "ctor": {
+        "module": "basicsr.archs.mambairv2_llie_sr_arch",
+        "name": "MambaIRv2LLIESR"
+      },
+      "kwargs": {
+        "upscale": 2,
+        "embed_dim": 48,
+        "d_state": 8,
+        "depths": [5, 5, 5, 5],
+        "num_heads": [4, 4, 4, 4],
+        "window_size": 16,
+        "inner_rank": 32,
+        "num_tokens": 64,
+        "convffn_kernel_size": 5,
+        "mlp_ratio": 1.0,
+        "upsampler": "pixelshuffledirect",
+        "resi_connection": "1conv",
+        "igm_n_feat": 48,
+        "isdm_num_heads": 2,
+        "isdm_ffn_expansion": 2.66
+      },
+      "checkpoint": "experiments/pretrained_models/net_g_latest_no_retinex_x2.pth",
+      "param_key": "auto",
+      "strict": false,
+      "input_mode": "rgb_gray",
+      "output_dir": "ours"
+    },
+    {
+      "name": "ultrais",
+      "label": "UltraIS",
+      "enabled": true,
+      "module_root": "UltraIS-main",
+      "ctor": {
+        "module": "basicsr.models.archs.UltraIS_arch",
+        "name": "CSDLLSRNetv9_7_5"
+      },
+      "kwargs": {
+        "scale": 2
+      },
+      "checkpoint": "UltraIS-main/experiments/pretrained_models/net_g_latest_x2.pth",
+      "param_key": "params",
+      "strict": true,
+      "inference_impl": "ultrais_test_wrapper",
+      "input_mode": "rgb_gray",
+      "pad_to": 16,
+      "output_scale": 2,
+      "output_dir": "ultrais"
+    },
+    {
+      "name": "swinir_light_x2",
+      "label": "SwinIR",
+      "enabled": false,
+      "module_root": ".",
+      "builder": {
+        "module": "analysis.model_zoo.swinIR",
+        "name": "buildSwinIR_light"
+      },
+      "kwargs": {
+        "upscale": 2
+      },
+      "input_mode": "rgb",
+      "output_dir": "swinir"
+    },
+    {
+      "name": "hat_x2",
+      "label": "HAT",
+      "enabled": false,
+      "module_root": ".",
+      "builder": {
+        "module": "analysis.model_zoo.hat",
+        "name": "buildHAT"
+      },
+      "kwargs": {
+        "upscale": 2
+      },
+      "input_mode": "rgb",
+      "output_dir": "hat"
+    },
+    {
+      "name": "pan_x2",
+      "label": "PAN",
+      "enabled": false,
+      "module_root": ".",
+      "builder": {
+        "module": "analysis.model_zoo.pan",
+        "name": "buildPAN"
+      },
+      "kwargs": {
+        "upscale": 2
+      },
+      "input_mode": "rgb",
+      "output_dir": "pan"
+    },
+    {
+      "name": "mirnet_x2",
+      "label": "MIRNet",
+      "enabled": false,
+      "module_root": "../UltraIS-main",
+      "ctor": {
+        "module": "basicsr.models.archs.mirnetv2_arch",
+        "name": "MIRNet_v2_old"
+      },
+      "kwargs": {
+        "scale": 2
+      },
+      "input_mode": "rgb",
+      "output_dir": "mirnet"
+    },
+    {
+      "name": "restormer_x2",
+      "label": "Restormer",
+      "enabled": false,
+      "module_root": ".",
+      "ctor": {
+        "module": "analysis.model_zoo.restormer",
+        "name": "Restormer"
+      },
+      "kwargs": {},
+      "input_mode": "rgb",
+      "output_dir": "restormer"
+    },
+    {
+      "name": "srformer_x2",
+      "label": "SRFormer",
+      "enabled": false,
+      "module_root": ".",
+      "ctor": {
+        "module": "analysis.model_zoo.srformer",
+        "name": "SRFormer"
+      },
+      "kwargs": {},
+      "input_mode": "rgb",
+      "output_dir": "srformer"
+    }
+  ]
+}

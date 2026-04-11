@@ -1,0 +1,38 @@
+{
+  "workspace_root": "../..",
+  "lq_dir": "datasets/RELLISUR-Dataset/Test/LLLR",
+  "gt_dir": "datasets/RELLISUR-Dataset/Test/NLHR/X2",
+  "output_dir": "analysis/outputs/compare_panels",
+  "thumb_size": [220, 150],
+  "patch_size": 120,
+  "margin": 8,
+  "models": [
+    {
+      "name": "ours_lliesr",
+      "label": "Ours",
+      "output_dir": "analysis/outputs/single_image_outputs/ours"
+    },
+    {
+      "name": "ultrais",
+      "label": "UltraIS",
+      "output_dir": "analysis/outputs/single_image_outputs/ultrais"
+    }
+  ],
+  "cases": [
+    {
+      "name": "00311-3.0",
+      "crops": [
+        {
+          "name": "A",
+          "xywh": [720, 650, 130, 130],
+          "color_bgr": [0, 165, 255]
+        },
+        {
+          "name": "B",
+          "xywh": [660, 500, 140, 120],
+          "color_bgr": [120, 255, 120]
+        }
+      ]
+    }
+  ]
+}
