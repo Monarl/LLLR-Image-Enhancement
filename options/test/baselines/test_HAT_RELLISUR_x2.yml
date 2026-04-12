@@ -20,16 +20,16 @@ network_g:
   img_size: 64
   patch_size: 1
   in_chans: 3
-  embed_dim: 180
-  depths: [6, 6, 6, 6, 6, 6]
-  num_heads: [6, 6, 6, 6, 6, 6]
+  embed_dim: 60
+  depths: [6, 6, 6, 6]
+  num_heads: [6, 6, 6, 6]
   window_size: 16
   mlp_ratio: 2.0
   upsampler: pixelshuffle
   img_range: 1.0
 
 path:
-  pretrain_network_g: experiments/pretrained_models/HAT_RELLISUR_x2.pth
+  pretrain_network_g: experiments/pretrained_models/net_g_55000_HAT_x2.pth
   strict_load_g: true
 
 val:
