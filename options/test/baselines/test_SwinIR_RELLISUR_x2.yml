@@ -40,8 +40,8 @@ val:
     psnr:
       type: calculate_psnr
       crop_border: 2
-      test_y_channel: true
+      test_y_channel: false
     ssim:
       type: calculate_ssim
       crop_border: 2
-      test_y_channel: true
+      test_y_channel: false
