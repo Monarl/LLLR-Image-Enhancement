@@ -123,7 +123,6 @@ def _register_supported_ops():
         "aten::argmax": zero_flop_jit,
         "aten::sort": zero_flop_jit,
         "aten::exponential_": zero_flop_jit,
-        "aten::clone": zero_flop_jit,
         "prim::PythonOp.SelectiveScanFn": selective_scan_flop_jit,
         "prim::PythonOp.SelectiveScanMamba": selective_scan_flop_jit,
         "prim::PythonOp.SelectiveScanOflex": selective_scan_flop_jit,
@@ -274,7 +273,7 @@ def main():
     parser.add_argument(
         "--checkpoint",
         type=str,
-        default="experiments/pretrained_models/net_g_latest_no_mobilevit.pth",
+        default="experiments/pretrained_models/net_g_60000_no_retinex.pth",
         help="Path to model checkpoint (.pth).",
     )
     parser.add_argument("--height", type=int, default=128, help="Input LR height for benchmarking.")
