@@ -48,7 +48,7 @@ network_g:
 # Paths
 # -----------------------------------------------------------------------------
 path:
-  pretrain_network_g: experiments/pretrained_models/net_g_60000_no_retinex.pth
+  pretrain_network_g: experiments/pretrained_models/net_g_60000_no_retinex_x4.pth
   strict_load_g: true
 
 # -----------------------------------------------------------------------------

@@ -24,7 +24,7 @@ network_g:
   nb: 16
 
 path:
-  pretrain_network_g: experiments/pretrained_models/PAN_RELLISUR_x2.pth
+  pretrain_network_g: experiments/pretrained_models/net_g_65000_PAN_x2.pth
   strict_load_g: true
 
 val:
