@@ -1,0 +1,47 @@
+name: test_SwinIR_RELLISUR_x4
+model_type: SRModel
+scale: 4
+num_gpu: 1
+manual_seed: 10
+
+datasets:
+  test_1:
+    name: RELLISUR_Test
+    type: PairedImageDataset
+    dataroot_gt: datasets/RELLISUR-Dataset/Test/NLHR/X4
+    dataroot_lq: datasets/RELLISUR-Dataset/Test/LLLR
+    direct_gt_match: true
+    io_backend:
+      type: disk
+
+network_g:
+  type: BaselineSwinIR
+  upscale: 4
+  img_size: 64
+  patch_size: 1
+  in_chans: 3
+  embed_dim: 60
+  depths: [6, 6, 6, 6]
+  num_heads: [6, 6, 6, 6]
+  window_size: 8
+  mlp_ratio: 2.0
+  upsampler: pixelshuffledirect
+  img_range: 1.0
+
+path:
+  pretrain_network_g: experiments/pretrained_models/SwinIR_RELLISUR_x4.pth
+  strict_load_g: true
+
+val:
+  save_img: true
+  suffix: ~
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 4
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 4
+      test_y_channel: false

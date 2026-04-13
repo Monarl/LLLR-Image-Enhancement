@@ -7,6 +7,7 @@ exec bash
 conda activate mambair
 python basicsr/train.py -opt options/train/mambairv2/train_MambaIRv2_lightSR_x4.yml
 python basicsr/test.py -opt options/test/mambairv2/test_lightSR_x4_singleimage.yml
+PYTHONPATH=/workspace/UltraIS-main CUDA_VISIBLE_DEVICES=0 python -m basicsr.test -opt Super_Resolution/Options/CSDLLSR_v9_7_5_3_scale2_test.yml
 python basicsr/train.py \
     -opt options/train/mambairv2_llie_sr/train_MambaIRv2_LLIESR_x4.yml \
     --debug
@@ -26,7 +27,28 @@ Ctrl + B then press D
 - To restore the terminal: 
 ssh -p 43737 root@99.254.141.96 -L 8080:localhost:8080
 tmux attach
--------------------------------------------------------------------------
+
+------------------------------ Analysis -------------------------------------------
+python analysis/infer_single_image_multi_models.py --config analysis/configs/single_image_infer_example.json 
+python analysis/compare_restoration_panels.py --config analysis/configs/compare_restoration_example.json
+
+                                Metric Record
+- For MambaIR output
+python metric_full_eval_out2csv.py \
+  --pred_dir results/test_MambaIRv2_LLIESR_x4/visualization/RELLISUR_Test \
+  --gt_dir datasets/RELLISUR-Dataset/Test/NLHR/X2 \
+  --lq_dir datasets/RELLISUR-Dataset/Test/LLLR \
+  --csv_path results/test_MambaIRv2_LLIESR_x4/metrics_full.csv \
+  --crop_border 2
+  --test_y_channel # If want Y-channel PSNR/SSIM
+
+- For UltraIS output
+python ../MambaIR/metric_full_eval_out2csv.py \
+  --pred_dir results/test_v9_7_5_3_scale2_net_g_147000/visualization/RELLISUR_Test_X2 \
+  --gt_dir /workspace/datasets/RELLISUR-Dataset/Test/NLHR/X2 \
+  --lq_dir /workspace/datasets/RELLISUR-Dataset/Test/LLLR \
+  --csv_path results/test_v9_7_5_3_scale2_net_g_147000/metrics_full.csv \
+  --crop_border 2
 
 Change yml file to use 1 gpu and double the batch size
 ------------------------------------------------------------------------------

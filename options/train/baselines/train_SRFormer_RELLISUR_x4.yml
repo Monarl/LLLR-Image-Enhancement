@@ -1,0 +1,101 @@
+name: SRFormer_RELLISUR_x4
+model_type: SRModel
+scale: 4
+num_gpu: 1
+manual_seed: 10
+
+datasets:
+  train:
+    task: SR
+    name: RELLISUR_Train
+    type: PairedImageDataset
+    dataroot_gt: datasets/RELLISUR-Dataset/Train/NLHR/X4
+    dataroot_lq: datasets/RELLISUR-Dataset/Train/LLLR
+    direct_gt_match: true
+    io_backend:
+      type: disk
+
+    gt_size: 192
+    use_hflip: true
+    use_rot: true
+
+    use_shuffle: true
+    num_worker_per_gpu: 8
+    batch_size_per_gpu: 8
+    dataset_enlarge_ratio: 100
+    prefetch_mode: ~
+
+  val:
+    name: RELLISUR_Val
+    type: PairedImageDataset
+    dataroot_gt: datasets/RELLISUR-Dataset/Val/NLHR/X4
+    dataroot_lq: datasets/RELLISUR-Dataset/Val/LLLR
+    direct_gt_match: true
+    meta_info_file: datasets/RELLISUR-Dataset/meta_info_RELLISUR_val_quick_X4.txt
+    io_backend:
+      type: disk
+
+network_g:
+  type: BaselineSRFormer
+  upscale: 4
+  img_size: 64
+  patch_size: 1
+  in_chans: 3
+  embed_dim: 60
+  depths: [6, 6, 6, 6]
+  num_heads: [6, 6, 6, 6]
+  window_size: 8
+  mlp_ratio: 2.0
+  upsampler: pixelshuffledirect
+  img_range: 1.0
+
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+  resume_state: ~
+
+train:
+  optim_g:
+    type: Adam
+    lr: !!float 2e-4
+    weight_decay: 0
+    betas: [0.9, 0.99]
+
+  scheduler:
+    type: MultiStepLR
+    milestones: [50000, 75000, 90000, 95000]
+    gamma: 0.5
+
+  total_iter: 100000
+  warmup_iter: -1
+
+  pixel_opt:
+    type: L1Loss
+    loss_weight: 1.0
+    reduction: mean
+
+val:
+  val_freq: !!float 5e3
+  save_img: false
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 4
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 4
+      test_y_channel: false
+
+logger:
+  print_freq: 200
+  save_checkpoint_freq: !!float 5e3
+  use_tb_logger: true
+  wandb:
+    project: ~
+    resume_id: ~
+
+dist_params:
+  backend: nccl
+  port: 29500

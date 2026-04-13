@@ -1,0 +1,42 @@
+name: test_PAN_RELLISUR_x4
+model_type: SRModel
+scale: 4
+num_gpu: 1
+manual_seed: 10
+
+datasets:
+  test_1:
+    name: RELLISUR_Test
+    type: PairedImageDataset
+    dataroot_gt: datasets/RELLISUR-Dataset/Test/NLHR/X4
+    dataroot_lq: datasets/RELLISUR-Dataset/Test/LLLR
+    direct_gt_match: true
+    io_backend:
+      type: disk
+
+network_g:
+  type: BaselinePAN
+  upscale: 4
+  in_chans: 3
+  out_chans: 3
+  nf: 40
+  unf: 24
+  nb: 16
+
+path:
+  pretrain_network_g: experiments/pretrained_models/PAN_RELLISUR_x4.pth
+  strict_load_g: true
+
+val:
+  save_img: true
+  suffix: ~
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 4
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 4
+      test_y_channel: false
