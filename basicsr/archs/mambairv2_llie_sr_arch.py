@@ -129,6 +129,8 @@ class MambaIRv2LLIESR(nn.Module):
         igm_n_feat (int): IGM feature channels (should match embed_dim). Default: 48.
         isdm_num_heads (int): ISDM-lite attention heads. Default: 2.
         isdm_ffn_expansion (float): ISDM-lite FFN expansion. Default: 2.66.
+        use_reflectance_input (bool): If True, backbone input is Retinex
+            reflectance x / illumination_map (UltraIS-style). Default: True.
     """
 
     def __init__(
@@ -158,6 +160,7 @@ class MambaIRv2LLIESR(nn.Module):
         igm_n_feat=48,
         isdm_num_heads=2,
         isdm_ffn_expansion=2.66,
+        use_reflectance_input=True,
         **kwargs,
     ):
         super().__init__()
@@ -176,6 +179,7 @@ class MambaIRv2LLIESR(nn.Module):
         self.upscale = upscale
         self.upsampler = upsampler
         self.window_size = window_size
+        self.use_reflectance_input = use_reflectance_input
 
         if in_chans == 3:
             rgb_mean = (0.4488, 0.4371, 0.4040)
@@ -469,6 +473,10 @@ class MambaIRv2LLIESR(nn.Module):
 
         Returns:
             Super-resolved enhanced output [B, 3, H*scale, W*scale].
+
+        Note:
+            When use_reflectance_input=True, the main backbone receives
+            reflectance (x / illumination) instead of raw low-light x.
         """
         # --- Padding to multiple of window_size ---
         h_ori, w_ori = x.size()[-2], x.size()[-1]
@@ -498,6 +506,15 @@ class MambaIRv2LLIESR(nn.Module):
         i_fk_list, illumination_map = self.igm(gray)
         # Store for potential illumination loss in model class
         self._illumination_map = illumination_map
+
+        # --- Retinex-style decomposition: estimate reflectance ---
+        # Match UltraIS behavior: divide by predicted illumination then clamp.
+        if self.use_reflectance_input:
+            reflectance = torch.clamp(
+                x / illumination_map.repeat(1, 3, 1, 1), 0.0, 1.0
+            )
+            self._reflectance = reflectance
+            x = reflectance
 
         # --- Normalize x for main backbone ---
         self.mean = self.mean.type_as(x)

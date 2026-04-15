@@ -9,7 +9,9 @@ sys.path.append(parent_dir)
 
 import logging
 import math
+import random
 import time
+import numpy as np
 import torch
 from os import path as osp
 
@@ -160,6 +162,29 @@ def train_pipeline(root_path):
     data_timer, iter_timer = AvgTimer(), AvgTimer()
     start_time = time.time()
 
+    # Optional UltraIS-style progressive training schedule.
+    train_dataset_opt = opt['datasets']['train']
+    iters = train_dataset_opt.get('iters')
+    batch_size = train_dataset_opt.get('batch_size_per_gpu')
+    mini_batch_sizes = train_dataset_opt.get('mini_batch_sizes')
+    gt_size = train_dataset_opt.get('gt_size')
+    mini_gt_sizes = train_dataset_opt.get('gt_sizes')
+    use_progressive = all(v is not None for v in [iters, batch_size, mini_batch_sizes, gt_size, mini_gt_sizes])
+
+    if use_progressive:
+        if not (len(iters) == len(mini_batch_sizes) == len(mini_gt_sizes)):
+            raise ValueError(
+                'Progressive training config mismatch: '
+                'len(iters), len(mini_batch_sizes), len(gt_sizes) must match.'
+            )
+        groups = np.array([sum(iters[0:i + 1]) for i in range(len(iters))])
+        logger_j = [True] * len(groups)
+        scale = int(opt.get('scale', 1))
+    else:
+        groups = None
+        logger_j = None
+        scale = int(opt.get('scale', 1))
+
     for epoch in range(start_epoch, total_epochs + 1):
         train_sampler.set_epoch(epoch)
         prefetcher.reset()
@@ -173,8 +198,65 @@ def train_pipeline(root_path):
                 break
             # update learning rate
             model.update_learning_rate(current_iter, warmup_iter=opt['train'].get('warmup_iter', -1))
+
+            # Optional progressive mini-batch + patch-size sampling.
+            runtime_train_data = train_data
+            if use_progressive:
+                j = ((current_iter > groups) != True).nonzero()[0]
+                if len(j) == 0:
+                    bs_j = len(groups) - 1
+                else:
+                    bs_j = j[0]
+
+                mini_gt_size = int(mini_gt_sizes[bs_j])
+                mini_batch_size = int(mini_batch_sizes[bs_j])
+
+                if logger_j[bs_j]:
+                    world_bs = mini_batch_size * max(1, torch.cuda.device_count())
+                    logger.info(
+                        f'\n Updating Patch_Size to {mini_gt_size} and '
+                        f'Batch_Size to {world_bs} \n'
+                    )
+                    logger_j[bs_j] = False
+
+                lq = train_data['lq']
+                gt = train_data['gt']
+                gray = train_data.get('gray', None)
+
+                if mini_batch_size < batch_size:
+                    bs_cur = lq.size(0)
+                    k = min(mini_batch_size, bs_cur)
+                    indices = random.sample(range(0, bs_cur), k=k)
+                    lq = lq[indices]
+                    gt = gt[indices]
+                    if gray is not None:
+                        gray = gray[indices]
+
+                if mini_gt_size < gt_size:
+                    mini_lq_size = mini_gt_size // scale
+                    h_lq, w_lq = lq.shape[-2], lq.shape[-1]
+                    if mini_lq_size < h_lq and mini_lq_size < w_lq:
+                        x0 = random.randint(0, h_lq - mini_lq_size)
+                        y0 = random.randint(0, w_lq - mini_lq_size)
+                        x1 = x0 + mini_lq_size
+                        y1 = y0 + mini_lq_size
+
+                        gx0, gy0 = x0 * scale, y0 * scale
+                        gx1, gy1 = x1 * scale, y1 * scale
+
+                        lq = lq[:, :, x0:x1, y0:y1]
+                        gt = gt[:, :, gx0:gx1, gy0:gy1]
+                        if gray is not None:
+                            gray = gray[:, :, x0:x1, y0:y1]
+
+                runtime_train_data = dict(train_data)
+                runtime_train_data['lq'] = lq
+                runtime_train_data['gt'] = gt
+                if gray is not None:
+                    runtime_train_data['gray'] = gray
+
             # training
-            model.feed_data(train_data)
+            model.feed_data(runtime_train_data)
 
             # --- VRAM measurement ---
             if current_iter % 10 == 1:
