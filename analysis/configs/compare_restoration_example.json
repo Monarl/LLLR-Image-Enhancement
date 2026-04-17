@@ -10,26 +10,26 @@
     {
       "name": "ours_lliesr",
       "label": "Ours",
-      "output_dir": "analysis/outputs/single_image_outputs/ours"
+      "output_dir": "results/test_MambaIRv2_LLIESR_x2/visualization/RELLISUR_Test"
     },
     {
       "name": "ultrais",
       "label": "UltraIS",
-      "output_dir": "analysis/outputs/single_image_outputs/ultrais"
+      "output_dir": "../UltraIS-main/results/test_v9_7_5_3_scale2_net_g_147000/visualization/RELLISUR_Test_X2"
     }
   ],
   "cases": [
     {
-      "name": "00311-3.0",
+      "name": "00654-3.0",
       "crops": [
         {
           "name": "A",
-          "xywh": [720, 650, 130, 130],
+          "xywh": [650, 180, 130, 130],
           "color_bgr": [0, 165, 255]
         },
         {
           "name": "B",
-          "xywh": [660, 500, 140, 120],
+          "xywh": [850, 1000, 140, 120],
           "color_bgr": [120, 255, 120]
         }
       ]

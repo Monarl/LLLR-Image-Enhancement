@@ -13,6 +13,34 @@ import numpy as np
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
 
 
+def _imread_unicode(path: Path, flags: int = cv2.IMREAD_COLOR) -> Optional[np.ndarray]:
+    """Unicode-safe image read for Windows paths.
+
+    cv2.imread can fail on non-ASCII paths on some Windows setups.
+    """
+    try:
+        data = np.fromfile(str(path), dtype=np.uint8)
+        if data.size == 0:
+            return None
+        return cv2.imdecode(data, flags)
+    except Exception:
+        return None
+
+
+def _imwrite_unicode(path: Path, img: np.ndarray) -> bool:
+    """Unicode-safe image write for Windows paths."""
+    ext = path.suffix if path.suffix else ".png"
+    ok, buf = cv2.imencode(ext, img)
+    if not ok:
+        return False
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        buf.tofile(str(path))
+        return True
+    except Exception:
+        return False
+
+
 def _load_config(config_path: Path) -> dict:
     suffix = config_path.suffix.lower()
     text = config_path.read_text(encoding="utf-8")
@@ -293,7 +321,7 @@ def main() -> None:
             print(f"[WARN] Missing GT for {name}")
             continue
 
-        gt_img = cv2.imread(str(gt_path), cv2.IMREAD_COLOR)
+        gt_img = _imread_unicode(gt_path, cv2.IMREAD_COLOR)
         if gt_img is None:
             print(f"[WARN] Cannot read GT: {gt_path}")
             continue
@@ -302,7 +330,7 @@ def main() -> None:
         if lq_dir is not None and lq_dir.exists():
             lq_path = _find_matching_image(name, lq_dir)
             if lq_path is not None:
-                lq_img = cv2.imread(str(lq_path), cv2.IMREAD_COLOR)
+                lq_img = _imread_unicode(lq_path, cv2.IMREAD_COLOR)
 
         model_tiles: List[Tuple[str, np.ndarray]] = []
         metric_row = {"image": name}
@@ -315,7 +343,7 @@ def main() -> None:
                 print(f"[WARN] Missing prediction for {name} in {output_dir}")
                 continue
 
-            pred = cv2.imread(str(pred_path), cv2.IMREAD_COLOR)
+            pred = _imread_unicode(pred_path, cv2.IMREAD_COLOR)
             if pred is None:
                 print(f"[WARN] Cannot read prediction: {pred_path}")
                 continue
@@ -348,8 +376,10 @@ def main() -> None:
         )
 
         out_path = out_dir / f"{name}_comparison.png"
-        cv2.imwrite(str(out_path), panel)
-        print(f"[OK] Saved panel: {out_path}")
+        if _imwrite_unicode(out_path, panel):
+            print(f"[OK] Saved panel: {out_path}")
+        else:
+            print(f"[WARN] Failed to save panel: {out_path}")
 
         csv_rows.append(metric_row)
 
