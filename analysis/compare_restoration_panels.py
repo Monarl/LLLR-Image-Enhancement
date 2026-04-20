@@ -27,6 +27,38 @@ def _load_config(config_path: Path) -> dict:
     raise ValueError(f"Unsupported config format: {config_path}")
 
 
+def _imread_any(path: Path, flags: int = cv2.IMREAD_COLOR) -> Optional[np.ndarray]:
+    # Prefer byte decode first to avoid noisy OpenCV warnings on Windows Unicode paths.
+    try:
+        data = np.fromfile(str(path), dtype=np.uint8)
+    except OSError:
+        data = np.array([], dtype=np.uint8)
+
+    if data.size > 0:
+        img = cv2.imdecode(data, flags)
+        if img is not None:
+            return img
+
+    # Fallback for environments where fromfile/imdecode is unavailable.
+    return cv2.imread(str(path), flags)
+
+
+def _imwrite_any(path: Path, img: np.ndarray) -> bool:
+    # cv2.imwrite can fail on Windows Unicode paths; fallback to imencode + tofile.
+    ok = cv2.imwrite(str(path), img)
+    if ok:
+        return True
+    ext = path.suffix if path.suffix else ".png"
+    ret, buf = cv2.imencode(ext, img)
+    if not ret:
+        return False
+    try:
+        buf.tofile(str(path))
+        return True
+    except OSError:
+        return False
+
+
 def _list_images(folder: Path) -> List[Path]:
     if not folder.exists():
         return []
@@ -152,6 +184,21 @@ def _run_model_commands(models: List[dict], cwd: Path) -> None:
         subprocess.run(cmd, shell=True, check=True, cwd=str(cwd))
 
 
+def _apply_scale_tokens(text: str, scale: str) -> str:
+    return text.format(scale=scale, scale_upper=scale.upper())
+
+
+def _resolve_path_cfg(entry: dict, key: str, scale: str) -> Optional[str]:
+    by_scale = entry.get(f"{key}_by_scale")
+    if isinstance(by_scale, dict):
+        value = by_scale.get(scale)
+    else:
+        value = entry.get(key)
+    if not value:
+        return None
+    return _apply_scale_tokens(str(value), scale)
+
+
 def _build_panel(
     image_name: str,
     lq_img: Optional[np.ndarray],
@@ -161,6 +208,7 @@ def _build_panel(
     thumb_size: Tuple[int, int],
     patch_size: int,
     margin: int,
+    layout: str,
 ) -> np.ndarray:
     # Column order: Input, model outputs..., Ref.
     columns: List[Tuple[str, np.ndarray]] = []
@@ -178,6 +226,8 @@ def _build_panel(
         color = tuple(c.get("color_bgr", default_colors[i % len(default_colors)]))
         name = c.get("name", chr(ord("A") + i))
         crop_specs.append((xywh, color, str(name)))
+    if not crop_specs:
+        crop_specs.append(((0, 0, 32, 32), default_colors[0], "A"))
 
     tw, th = thumb_size
     top_tiles = []
@@ -195,6 +245,17 @@ def _build_panel(
     top_row = cv2.hconcat([cv2.copyMakeBorder(t, 0, 0, 0, margin, cv2.BORDER_CONSTANT, value=(20, 20, 20)) for t in top_tiles])
     top_row = top_row[:, :-margin, :]
 
+    if layout == "full_only":
+        label_h = 40
+        panel = np.full((top_row.shape[0] + label_h, top_row.shape[1], 3), 245, dtype=np.uint8)
+        panel[: top_row.shape[0], :, :] = top_row
+
+        col_w = tw + margin
+        for i, (title, _) in enumerate(columns):
+            tag = f"({chr(ord('a') + i)})"
+            _draw_text(panel, f"{tag} {title}", i * col_w + 8, top_row.shape[0] + 26, scale=0.56, color=(10, 10, 10))
+        return panel
+
     patch_rows = []
     for xywh, color, _ in crop_specs:
         patches = []
@@ -210,7 +271,8 @@ def _build_panel(
     metric_h = 34
     title_h = 32
     panel_w = top_row.shape[1]
-    body_h = title_h + top_row.shape[0] + len(patch_rows) * (patch_rows[0].shape[0] + margin) + metric_h + 2 * margin
+    patch_block_h = sum(row.shape[0] + margin for row in patch_rows)
+    body_h = title_h + top_row.shape[0] + patch_block_h + metric_h + 2 * margin
 
     panel = np.full((body_h, panel_w, 3), 20, dtype=np.uint8)
 
@@ -241,15 +303,32 @@ def main() -> None:
     parser.add_argument("--config", type=str, required=True, help="Path to JSON/YAML config.")
     parser.add_argument("--run-models", action="store_true", help="Run model commands before composing panels.")
     parser.add_argument("--max-cases", type=int, default=0, help="Limit number of cases. 0 means no limit.")
+    parser.add_argument("--scale", type=str, default=None, choices=["x2", "x4"], help="Evaluation scale (overrides config scale).")
+    parser.add_argument(
+        "--layout",
+        type=str,
+        default=None,
+        choices=["full_plus_crops", "full_only"],
+        help="Panel layout override: full images + crops, or full images only.",
+    )
     args = parser.parse_args()
 
     config_path = Path(args.config).resolve()
     cfg = _load_config(config_path)
+    scale = args.scale or str(cfg.get("scale", "x2"))
+    layout = args.layout or str(cfg.get("layout", "full_plus_crops"))
 
     workspace_root = (config_path.parent / cfg.get("workspace_root", "..")).resolve()
-    gt_dir = (workspace_root / cfg["gt_dir"]).resolve()
-    lq_dir = (workspace_root / cfg["lq_dir"]).resolve() if cfg.get("lq_dir") else None
-    out_dir = (workspace_root / cfg.get("output_dir", "analysis/outputs/compare_panels")).resolve()
+    gt_dir_rel = _resolve_path_cfg(cfg, "gt_dir", scale)
+    if not gt_dir_rel:
+        raise ValueError(f"Missing GT directory for scale={scale}. Use gt_dir or gt_dir_by_scale in config.")
+
+    lq_dir_rel = _resolve_path_cfg(cfg, "lq_dir", scale)
+    out_dir_rel = _resolve_path_cfg(cfg, "output_dir", scale) or "analysis/outputs/compare_panels"
+
+    gt_dir = (workspace_root / gt_dir_rel).resolve()
+    lq_dir = (workspace_root / lq_dir_rel).resolve() if lq_dir_rel else None
+    out_dir = (workspace_root / out_dir_rel).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     models = cfg.get("models", [])
@@ -293,7 +372,7 @@ def main() -> None:
             print(f"[WARN] Missing GT for {name}")
             continue
 
-        gt_img = cv2.imread(str(gt_path), cv2.IMREAD_COLOR)
+        gt_img = _imread_any(gt_path, cv2.IMREAD_COLOR)
         if gt_img is None:
             print(f"[WARN] Cannot read GT: {gt_path}")
             continue
@@ -302,20 +381,25 @@ def main() -> None:
         if lq_dir is not None and lq_dir.exists():
             lq_path = _find_matching_image(name, lq_dir)
             if lq_path is not None:
-                lq_img = cv2.imread(str(lq_path), cv2.IMREAD_COLOR)
+                lq_img = _imread_any(lq_path, cv2.IMREAD_COLOR)
 
         model_tiles: List[Tuple[str, np.ndarray]] = []
         metric_row = {"image": name}
 
         for model in models:
             label = model.get("label", model.get("name", "model"))
-            output_dir = (workspace_root / model["output_dir"]).resolve()
+            output_dir_rel = _resolve_path_cfg(model, "output_dir", scale)
+            if not output_dir_rel:
+                print(f"[INFO] Skip model '{label}' for scale={scale}: no output_dir configured")
+                continue
+
+            output_dir = (workspace_root / output_dir_rel).resolve()
             pred_path = _find_matching_image(name, output_dir, model.get("name"))
             if pred_path is None:
                 print(f"[WARN] Missing prediction for {name} in {output_dir}")
                 continue
 
-            pred = cv2.imread(str(pred_path), cv2.IMREAD_COLOR)
+            pred = _imread_any(pred_path, cv2.IMREAD_COLOR)
             if pred is None:
                 print(f"[WARN] Cannot read prediction: {pred_path}")
                 continue
@@ -345,11 +429,14 @@ def main() -> None:
             thumb_size=thumb_size,
             patch_size=patch_size,
             margin=margin,
+            layout=layout,
         )
 
         out_path = out_dir / f"{name}_comparison.png"
-        cv2.imwrite(str(out_path), panel)
-        print(f"[OK] Saved panel: {out_path}")
+        if _imwrite_any(out_path, panel):
+            print(f"[OK] Saved panel: {out_path}")
+        else:
+            print(f"[WARN] Failed to save panel: {out_path}")
 
         csv_rows.append(metric_row)
 

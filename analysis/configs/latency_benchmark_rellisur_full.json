@@ -1,0 +1,133 @@
+{
+  "workspace_root": "../..",
+  "device": "cuda",
+  "input_height": 128,
+  "input_width": 128,
+  "warmup": 10,
+  "repetitions": 300,
+  "half": false,
+  "output_csv": "analysis/outputs/latency/latency_report_rellisur_full.csv",
+  "models": [
+    {
+      "name": "mambairv2_lliesr_no_retinex_x2",
+      "label": "Ours-x2",
+      "enabled": true,
+      "module_root": ".",
+      "opt_file": "options/test/mambairv2_llie_sr/test_MambaIRv2_LLIESR_x2.yml",
+      "checkpoint": "experiments/pretrained_models/net_g_latest_no_retinex_x2.pth",
+      "param_key": "auto",
+      "strict": false,
+      "input_mode": "rgb_gray"
+    },
+    {
+      "name": "mambairv2_lliesr_no_retinex_x4",
+      "label": "Ours-x4",
+      "enabled": true,
+      "module_root": ".",
+      "opt_file": "options/test/mambairv2_llie_sr/test_MambaIRv2_LLIESR_x4.yml",
+      "checkpoint": "experiments/pretrained_models/net_g_latest_no_retinex_x4.pth",
+      "param_key": "auto",
+      "strict": false,
+      "input_mode": "rgb_gray"
+    },
+    {
+      "name": "pan_x2",
+      "label": "PAN-x2",
+      "enabled": true,
+      "module_root": ".",
+      "opt_file": "options/test/baselines/test_PAN_RELLISUR_x2.yml",
+      "checkpoint": "experiments/pretrained_models/net_g_65000_PAN_x2.pth",
+      "param_key": "auto",
+      "strict": false,
+      "input_mode": "rgb"
+    },
+    {
+      "name": "pan_x4",
+      "label": "PAN-x4",
+      "enabled": true,
+      "module_root": ".",
+      "opt_file": "options/test/baselines/test_PAN_RELLISUR_x4.yml",
+      "checkpoint": "experiments/pretrained_models/net_g_90000_PAN_x4.pth",
+      "param_key": "auto",
+      "strict": false,
+      "input_mode": "rgb"
+    },
+    {
+      "name": "swinir_light_x2",
+      "label": "SwinIR-x2",
+      "enabled": true,
+      "module_root": ".",
+      "opt_file": "options/test/baselines/test_SwinIR_RELLISUR_x2.yml",
+      "checkpoint": "experiments/pretrained_models/net_g_65000_SwinIR_x2.pth",
+      "param_key": "auto",
+      "strict": false,
+      "input_mode": "rgb"
+    },
+    {
+      "name": "swinir_light_x4",
+      "label": "SwinIR-x4",
+      "enabled": true,
+      "module_root": ".",
+      "opt_file": "options/test/baselines/test_SwinIR_RELLISUR_x4.yml",
+      "checkpoint": "experiments/pretrained_models/net_g_latest_SwinIR_x4.pth",
+      "param_key": "auto",
+      "strict": false,
+      "input_mode": "rgb"
+    },
+    {
+      "name": "hat_x2",
+      "label": "HAT-x2",
+      "enabled": true,
+      "module_root": ".",
+      "opt_file": "options/test/baselines/test_HAT_RELLISUR_x2.yml",
+      "checkpoint": "experiments/pretrained_models/net_g_90000_HAT_x2.pth",
+      "param_key": "auto",
+      "strict": false,
+      "input_mode": "rgb"
+    },
+    {
+      "name": "hat_x4",
+      "label": "HAT-x4",
+      "enabled": true,
+      "module_root": ".",
+      "opt_file": "options/test/baselines/test_HAT_RELLISUR_x4.yml",
+      "checkpoint": "experiments/pretrained_models/net_g_80000_HAT_x4.pth",
+      "param_key": "auto",
+      "strict": false,
+      "input_mode": "rgb"
+    },
+    {
+      "name": "srformer_x2",
+      "label": "SRFormer-x2",
+      "enabled": true,
+      "module_root": ".",
+      "opt_file": "options/test/baselines/test_SRFormer_RELLISUR_x2.yml",
+      "checkpoint": "experiments/pretrained_models/net_g_80000_SRFormer_x2.pth",
+      "param_key": "auto",
+      "strict": false,
+      "input_mode": "rgb"
+    },
+    {
+      "name": "srformer_x4",
+      "label": "SRFormer-x4",
+      "enabled": true,
+      "module_root": ".",
+      "opt_file": "options/test/baselines/test_SRFormer_RELLISUR_x4.yml",
+      "checkpoint": "experiments/pretrained_models/net_g_90000_SRFormer_x4.pth",
+      "param_key": "auto",
+      "strict": false,
+      "input_mode": "rgb"
+    },
+    {
+      "name": "ultrais_x2",
+      "label": "UltraIS-x2",
+      "enabled": true,
+      "module_root": "./UltraIS-main",
+      "opt_file": "UltraIS-main/Super_Resolution/Options/CSDLLSR_v9_7_5_3_scale2_test.yml",
+      "checkpoint": "./UltraIS-main/experiments/pretrained_models/net_g_147000_x2.pth",
+      "param_key": "params",
+      "strict": true,
+      "input_mode": "rgb_gray"
+    }
+  ]
+}

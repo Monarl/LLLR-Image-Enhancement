@@ -1,35 +1,77 @@
 {
   "workspace_root": "../..",
+  "scale": "x2",
+  "layout": "full_plus_crops",
   "lq_dir": "datasets/RELLISUR-Dataset/Test/LLLR",
-  "gt_dir": "datasets/RELLISUR-Dataset/Test/NLHR/X2",
-  "output_dir": "analysis/outputs/compare_panels",
-  "thumb_size": [220, 150],
+  "gt_dir_by_scale": {
+    "x2": "datasets/RELLISUR-Dataset/Test/NLHR/X2",
+    "x4": "datasets/RELLISUR-Dataset/Test/NLHR/X4"
+  },
+  "output_dir": "analysis/outputs/compare_panels/{scale}",
+  "thumb_size": [160, 120],
   "patch_size": 120,
-  "margin": 8,
+  "margin": 6,
   "models": [
     {
-      "name": "ours_lliesr",
+      "name": "Ours",
       "label": "Ours",
-      "output_dir": "analysis/outputs/single_image_outputs/ours"
+      "output_dir_by_scale": {
+        "x2": "results/test_MambaIRv2_LLIESR_x2/visualization/RELLISUR_Test",
+        "x4": "results/test_MambaIRv2_LLIESR_x4/visualization/RELLISUR_Test"
+      }
+    },
+    {
+      "name": "pan",
+      "label": "PAN",
+      "output_dir_by_scale": {
+        "x2": "results/test_PAN_RELLISUR_x2/visualization/RELLISUR_Test",
+        "x4": "results/test_PAN_RELLISUR_x4/visualization/RELLISUR_Test"
+      }
+    },
+    {
+      "name": "swinir",
+      "label": "SwinIR",
+      "output_dir_by_scale": {
+        "x2": "results/test_SwinIR_RELLISUR_x2/visualization/RELLISUR_Test",
+        "x4": "results/test_SwinIR_RELLISUR_x4/visualization/RELLISUR_Test"
+      }
+    },
+    {
+      "name": "srformer",
+      "label": "SRFormer",
+      "output_dir_by_scale": {
+        "x2": "results/test_SRFormer_RELLISUR_x2/visualization/RELLISUR_Test",
+        "x4": "results/test_SRFormer_RELLISUR_x4/visualization/RELLISUR_Test"
+      }
+    },
+    {
+      "name": "hat",
+      "label": "HAT",
+      "output_dir_by_scale": {
+        "x2": "results/test_HAT_RELLISUR_x2/visualization/RELLISUR_Test",
+        "x4": "results/test_HAT_RELLISUR_x4/visualization/RELLISUR_Test"
+      }
     },
     {
       "name": "ultrais",
       "label": "UltraIS",
-      "output_dir": "analysis/outputs/single_image_outputs/ultrais"
+      "output_dir_by_scale": {
+        "x2": "../UltraIS-main/results/test_v9_7_5_3_scale2_net_g_147000/visualization/RELLISUR_Test_X2"
+      }
     }
   ],
   "cases": [
     {
-      "name": "00311-3.0",
+      "name": "00187-3.0",
       "crops": [
         {
           "name": "A",
-          "xywh": [720, 650, 130, 130],
+          "xywh": [900, 100, 130, 130],
           "color_bgr": [0, 165, 255]
         },
         {
           "name": "B",
-          "xywh": [660, 500, 140, 120],
+          "xywh": [200, 1040, 140, 120],
           "color_bgr": [120, 255, 120]
         }
       ]
