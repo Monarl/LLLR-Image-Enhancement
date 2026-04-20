@@ -158,6 +158,10 @@ class MambaIRv2LLIESR(nn.Module):
         igm_n_feat=48,
         isdm_num_heads=2,
         isdm_ffn_expansion=2.66,
+        # --- Ablation toggles ---
+        ablate_igm=False,
+        ablate_mini_aspp=False,
+        ablate_isdm=False,
         **kwargs,
     ):
         super().__init__()
@@ -176,6 +180,9 @@ class MambaIRv2LLIESR(nn.Module):
         self.upscale = upscale
         self.upsampler = upsampler
         self.window_size = window_size
+        self.ablate_igm = ablate_igm
+        self.ablate_mini_aspp = ablate_mini_aspp
+        self.ablate_isdm = ablate_isdm
 
         if in_chans == 3:
             rgb_mean = (0.4488, 0.4371, 0.4040)
@@ -301,25 +308,29 @@ class MambaIRv2LLIESR(nn.Module):
         # ================================================================
         # 4. Illumination Guidance Module (IGM)
         # ================================================================
-        self.igm = IGMModule(n_feat=igm_n_feat)
+        self.igm = None if self.ablate_igm else IGMModule(n_feat=igm_n_feat)
 
         # ================================================================
         # 5. Mini-ASPP semantic extraction (one per ASSG stage)
         # ================================================================
-        self.mini_aspp_stages = create_mini_aspp_stages(
-            num_stages=num_stages,
-            in_channels=embed_dim,
-        )
+        self.mini_aspp_stages = None
+        if not self.ablate_mini_aspp:
+            self.mini_aspp_stages = create_mini_aspp_stages(
+                num_stages=num_stages,
+                in_channels=embed_dim,
+            )
 
         # ================================================================
         # 6. ISDM-lite dual modulation (one per ASSG stage)
         # ================================================================
-        self.isdm_stages = create_isdm_lite_stages(
-            num_stages=num_stages,
-            dim=embed_dim,
-            num_heads=isdm_num_heads,
-            ffn_expansion_factor=isdm_ffn_expansion,
-        )
+        self.isdm_stages = None
+        if not self.ablate_isdm:
+            self.isdm_stages = create_isdm_lite_stages(
+                num_stages=num_stages,
+                dim=embed_dim,
+                num_heads=isdm_num_heads,
+                ffn_expansion_factor=isdm_ffn_expansion,
+            )
 
         # Initialize weights
         self.apply(self._init_weights)
@@ -400,6 +411,19 @@ class MambaIRv2LLIESR(nn.Module):
     #  Forward: Deep Features with ISDM-lite Modulation
     # ------------------------------------------------------------------
 
+    def _build_neutral_igm_features(self, h, w, batch_size, device, dtype):
+        """Build zero-valued IGM features with the same 5-level scale pattern."""
+        scales = [16, 8, 4, 2, 1]
+        i_fk_list = []
+        for scale in scales:
+            i_h = max(1, h // scale)
+            i_w = max(1, w // scale)
+            i_fk_list.append(
+                torch.zeros(batch_size, self.embed_dim, i_h, i_w,
+                            device=device, dtype=dtype)
+            )
+        return i_fk_list
+
     def forward_features(self, x, i_fk_list, params):
         """
         Deep feature extraction with per-stage ISDM-lite modulation.
@@ -432,7 +456,10 @@ class MambaIRv2LLIESR(nn.Module):
             x_2d = x.transpose(1, 2).view(B, C, H, W)  # [B, C, H, W]
 
             # --- Mini-ASPP: extract semantic features ---
-            s_fk = self.mini_aspp_stages[k](x_2d)  # [B, C, H, W]
+            if self.ablate_mini_aspp:
+                s_fk = torch.zeros_like(x_2d)
+            else:
+                s_fk = self.mini_aspp_stages[k](x_2d)  # [B, C, H, W]
 
             # --- Select I_fk for this stage ---
             # IGM produces 5 levels [0..4], we use the finest N levels
@@ -444,7 +471,10 @@ class MambaIRv2LLIESR(nn.Module):
 
             # --- ISDM-lite: dual modulation ---
             # IMU: modulate with illumination → SMU: modulate with semantics
-            m_fk = self.isdm_stages[k](x_2d, i_fk, s_fk)  # [B, C, H, W]
+            if self.ablate_isdm:
+                m_fk = x_2d
+            else:
+                m_fk = self.isdm_stages[k](x_2d, i_fk, s_fk)  # [B, C, H, W]
 
             # --- Convert back to 1D for next ASSG block ---
             x = m_fk.flatten(2).transpose(1, 2)  # [B, H*W, C]
@@ -495,9 +525,19 @@ class MambaIRv2LLIESR(nn.Module):
             )[:, :, :, :w]
 
         # --- IGM: illumination features ---
-        i_fk_list, illumination_map = self.igm(gray)
-        # Store for potential illumination loss in model class
-        self._illumination_map = illumination_map
+        if self.ablate_igm:
+            i_fk_list = self._build_neutral_igm_features(
+                h=h,
+                w=w,
+                batch_size=x.shape[0],
+                device=x.device,
+                dtype=x.dtype,
+            )
+            self._illumination_map = None
+        else:
+            i_fk_list, illumination_map = self.igm(gray)
+            # Store for potential illumination loss in model class
+            self._illumination_map = illumination_map
 
         # --- Normalize x for main backbone ---
         self.mean = self.mean.type_as(x)

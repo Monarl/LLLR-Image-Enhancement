@@ -1,0 +1,62 @@
+# =============================================================================
+# MambaIRv2 LLIE+SR Test Config (x2 upscale) - Ablation A2: No Mini-ASPP
+# =============================================================================
+
+name: test_MambaIRv2_LLIESR_x2_A2_NoMiniASPP
+model_type: MambaIRv2LLIESRModel
+scale: 2
+num_gpu: 1
+manual_seed: 10
+
+datasets:
+  test_1:
+    name: RELLISUR_Test
+    type: PairedImageDataset
+    dataroot_gt: datasets/RELLISUR-Dataset/Test/NLHR/X2
+    dataroot_lq: datasets/RELLISUR-Dataset/Test/LLLR
+    direct_gt_match: true
+    use_illguidance: true
+    io_backend:
+      type: disk
+
+network_g:
+  type: MambaIRv2LLIESR
+  upscale: 2
+  in_chans: 3
+  img_size: 64
+  img_range: 1.
+  embed_dim: 48
+  d_state: 8
+  depths: [ 5, 5, 5, 5 ]
+  num_heads: [ 4, 4, 4, 4 ]
+  window_size: 16
+  inner_rank: 32
+  num_tokens: 64
+  convffn_kernel_size: 5
+  mlp_ratio: 1.0
+  upsampler: 'pixelshuffledirect'
+  resi_connection: '1conv'
+  igm_n_feat: 48
+  isdm_num_heads: 2
+  isdm_ffn_expansion: 2.66
+  ablate_igm: false
+  ablate_mini_aspp: true
+  ablate_isdm: false
+
+path:
+  pretrain_network_g: experiments/pretrained_models/net_g_latest_no_mini.pth
+  strict_load_g: true
+
+val:
+  save_img: true
+  suffix: ~
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 2
+      test_y_channel: true
+    ssim:
+      type: calculate_ssim
+      crop_border: 2
+      test_y_channel: true
