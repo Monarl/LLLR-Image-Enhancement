@@ -40,7 +40,7 @@ network_g:
   isdm_num_heads: 2
   isdm_ffn_expansion: 2.66
   ablate_igm: false
-  ablate_mini_aspp: false
+  ablate_mini_aspp: true
   ablate_isdm: true
 
 path:

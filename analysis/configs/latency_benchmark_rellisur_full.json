@@ -128,6 +128,17 @@
       "param_key": "params",
       "strict": true,
       "input_mode": "rgb_gray"
+    },
+    {
+      "name": "ultrais_x4",
+      "label": "UltraIS-x4",
+      "enabled": true,
+      "module_root": "./UltraIS-main",
+      "opt_file": "UltraIS-main/Super_Resolution/Options/CSDLLSR_v9_7_5_3_scale4_test.yml",
+      "checkpoint": "",
+      "param_key": "auto",
+      "strict": false,
+      "input_mode": "rgb_gray"
     }
   ]
 }

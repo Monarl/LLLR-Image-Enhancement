@@ -1,0 +1,23 @@
+{
+  "workspace_root": "../..",
+  "device": "cuda",
+  "input_height": 128,
+  "input_width": 128,
+  "warmup": 10,
+  "repetitions": 200,
+  "half": false,
+  "output_csv": "analysis/outputs/latency/latency_report_ultrais_x4.csv",
+  "models": [
+    {
+      "name": "ultrais_x4",
+      "label": "UltraIS-x4",
+      "enabled": true,
+      "module_root": "./UltraIS-main",
+      "opt_file": "UltraIS-main/Super_Resolution/Options/CSDLLSR_v9_7_5_3_scale4_test.yml",
+      "checkpoint": "",
+      "param_key": "auto",
+      "strict": false,
+      "input_mode": "rgb_gray"
+    }
+  ]
+}
