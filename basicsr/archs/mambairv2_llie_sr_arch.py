@@ -129,6 +129,9 @@ class MambaIRv2LLIESR(nn.Module):
         igm_n_feat (int): IGM feature channels (should match embed_dim). Default: 48.
         isdm_num_heads (int): ISDM-lite attention heads. Default: 2.
         isdm_ffn_expansion (float): ISDM-lite FFN expansion. Default: 2.66.
+        igm_input_type (str): Input source for IGM. Use 'illumination_guidance'
+            for the original 2-channel guidance, or 'image' to feed the RGB
+            low-light input directly.
     """
 
     def __init__(
@@ -158,6 +161,7 @@ class MambaIRv2LLIESR(nn.Module):
         igm_n_feat=48,
         isdm_num_heads=2,
         isdm_ffn_expansion=2.66,
+        igm_input_type='illumination_guidance',
         # --- Ablation toggles ---
         ablate_igm=False,
         ablate_mini_aspp=False,
@@ -183,6 +187,14 @@ class MambaIRv2LLIESR(nn.Module):
         self.ablate_igm = ablate_igm
         self.ablate_mini_aspp = ablate_mini_aspp
         self.ablate_isdm = ablate_isdm
+        self.igm_input_type = igm_input_type
+
+        valid_igm_inputs = ('illumination_guidance', 'image')
+        if self.igm_input_type not in valid_igm_inputs:
+            raise ValueError(
+                f"igm_input_type must be one of {valid_igm_inputs}, "
+                f"got {self.igm_input_type!r}"
+            )
 
         if in_chans == 3:
             rgb_mean = (0.4488, 0.4371, 0.4040)
@@ -308,7 +320,11 @@ class MambaIRv2LLIESR(nn.Module):
         # ================================================================
         # 4. Illumination Guidance Module (IGM)
         # ================================================================
-        self.igm = None if self.ablate_igm else IGMModule(n_feat=igm_n_feat)
+        igm_in_channels = in_chans if self.igm_input_type == 'image' else 2
+        self.igm = None if self.ablate_igm else IGMModule(
+            n_feat=igm_n_feat,
+            inp_channels=igm_in_channels,
+        )
 
         # ================================================================
         # 5. Mini-ASPP semantic extraction (one per ASSG stage)
@@ -495,7 +511,8 @@ class MambaIRv2LLIESR(nn.Module):
         Args:
             x: Low-light low-resolution input [B, 3, H, W] in [0, 1].
             gray: Pre-computed 2-channel illumination guidance [B, 2, H, W].
-                  If None, computed automatically from x.
+                  Used only when igm_input_type='illumination_guidance'. If
+                  None in that mode, computed automatically from x.
 
         Returns:
             Super-resolved enhanced output [B, 3, H*scale, W*scale].
@@ -512,17 +529,18 @@ class MambaIRv2LLIESR(nn.Module):
         x = torch.cat([x, torch.flip(x, [3])], 3)[:, :, :, :w]
 
         # --- Illumination guidance ---
-        if gray is None:
-            # Compute from un-normalized x (still in [0, 1] range)
-            gray = compute_illumination_guidance(x)
-        else:
-            # Pad gray identically
-            gray = torch.cat(
-                [gray, torch.flip(gray, [2])], 2
-            )[:, :, :h, :]
-            gray = torch.cat(
-                [gray, torch.flip(gray, [3])], 3
-            )[:, :, :, :w]
+        if self.igm_input_type == 'illumination_guidance' and not self.ablate_igm:
+            if gray is None:
+                # Compute from un-normalized x (still in [0, 1] range)
+                gray = compute_illumination_guidance(x)
+            else:
+                # Pad gray identically
+                gray = torch.cat(
+                    [gray, torch.flip(gray, [2])], 2
+                )[:, :, :h, :]
+                gray = torch.cat(
+                    [gray, torch.flip(gray, [3])], 3
+                )[:, :, :, :w]
 
         # --- IGM: illumination features ---
         if self.ablate_igm:
@@ -535,7 +553,8 @@ class MambaIRv2LLIESR(nn.Module):
             )
             self._illumination_map = None
         else:
-            i_fk_list, illumination_map = self.igm(gray)
+            igm_input = x if self.igm_input_type == 'image' else gray
+            i_fk_list, illumination_map = self.igm(igm_input)
             # Store for potential illumination loss in model class
             self._illumination_map = illumination_map
 

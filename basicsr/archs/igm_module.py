@@ -255,32 +255,44 @@ class IGMModule(nn.Module):
     Complete Illumination Guidance Module (IGM).
     
     Takes precomputed 2-channel illumination guidance [guidance, grayscale]
+    by default, or another configured input such as the RGB low-light image.
     (computed in paired_image_dataset.py) and produces:
     1. Multi-scale illumination features I_f^(k) for ISDM-lite modulation
     2. Final illumination map for potential supervision
     """
     
-    def __init__(self, n_feat: int = 48, scale: int = 1, bias: bool = False):
+    def __init__(
+        self,
+        n_feat: int = 48,
+        scale: int = 1,
+        bias: bool = False,
+        inp_channels: int = 2,
+    ):
         super(IGMModule, self).__init__()
         
-        self.ienet = IENet(inp_channels=2, out_channels=1, n_feat=n_feat, scale=scale, bias=bias)
+        self.ienet = IENet(
+            inp_channels=inp_channels,
+            out_channels=1,
+            n_feat=n_feat,
+            scale=scale,
+            bias=bias,
+        )
         
-    def forward(self, gray: torch.Tensor) -> Tuple[List[torch.Tensor], torch.Tensor]:
+    def forward(self, igm_input: torch.Tensor) -> Tuple[List[torch.Tensor], torch.Tensor]:
         """
         Forward pass of complete IGM.
         
         Args:
-            gray: Precomputed 2-channel illumination guidance [B, 2, H, W]
-                  Channel 0: IG(L_g) = A(L_g) + B(L_g) (guidance)
-                  Channel 1: L_g (grayscale)
-                  Computed in paired_image_dataset.py
+            igm_input: Input for the illumination estimator. By default this
+                  is precomputed 2-channel illumination guidance [B, 2, H, W],
+                  but ablations can configure it as the RGB image [B, 3, H, W].
             
         Returns:
             Tuple of:
             - I_fk_list: Multi-scale illumination features for ISDM-lite [5 tensors]
             - illumination_map: Final illumination estimate [B, 1, H, W]
         """
-        I_fk_list, illumination_map = self.ienet(gray)
+        I_fk_list, illumination_map = self.ienet(igm_input)
         
         return I_fk_list, illumination_map
 
