@@ -89,6 +89,30 @@ cd /workspace/LLLR-Image-Enhancement
 /venv/main/bin/python analysis/benchmark_mambairv2_llie_sr.py --opt options/train/mambairv2_llie_sr/train_MambaIRv2_LLIESR_x2_ablate_igm_input_image.yml \
   --checkpoint experiments/pretrained_models/net_g_latest_igm_input_image_x2.pth --height 128 --width 128 --warmup 10 --repetitions 300
 
+# 4) No SSIM loss
+/venv/main/bin/python basicsr/train.py -opt options/train/mambairv2_llie_sr/train_MambaIRv2_LLIESR_x2_ablate_no_ssim_loss.yml
+/venv/main/bin/python basicsr/test.py -opt options/test/mambairv2_llie_sr/test_MambaIRv2_LLIESR_x2_ablate_no_ssim_loss.yml
+/venv/main/bin/python metric_full_eval_out2csv.py \
+  --pred_dir results/test_MambaIRv2_LLIESR_x2_A7_NoSSIMLoss/visualization/RELLISUR_Test \
+  --gt_dir datasets/RELLISUR-Dataset/Test/NLHR/X2 \
+  --csv_path results/test_MambaIRv2_LLIESR_x2_A7_NoSSIMLoss/metrics_full.csv \
+  --crop_border 2 \
+  --test_y_channel
+/venv/main/bin/python analysis/benchmark_mambairv2_llie_sr.py --opt options/train/mambairv2_llie_sr/train_MambaIRv2_LLIESR_x2_ablate_no_ssim_loss.yml \
+  --checkpoint experiments/pretrained_models/net_g_latest_no_ssim_loss.pth --height 128 --width 128 --warmup 10 --repetitions 300 --pass-gray
+
+# 5) No TV loss
+/venv/main/bin/python basicsr/train.py -opt options/train/mambairv2_llie_sr/train_MambaIRv2_LLIESR_x2_ablate_no_tv_loss.yml
+/venv/main/bin/python basicsr/test.py -opt options/test/mambairv2_llie_sr/test_MambaIRv2_LLIESR_x2_ablate_no_tv_loss.yml
+/venv/main/bin/python metric_full_eval_out2csv.py \
+  --pred_dir results/test_MambaIRv2_LLIESR_x2_A8_NoTVLoss/visualization/RELLISUR_Test \
+  --gt_dir datasets/RELLISUR-Dataset/Test/NLHR/X2 \
+  --csv_path results/test_MambaIRv2_LLIESR_x2_A8_NoTVLoss/metrics_full.csv \
+  --crop_border 2 \
+  --test_y_channel
+/venv/main/bin/python analysis/benchmark_mambairv2_llie_sr.py --opt options/train/mambairv2_llie_sr/train_MambaIRv2_LLIESR_x2_ablate_no_tv_loss.yml \
+  --checkpoint experiments/pretrained_models/net_g_latest_no_tv_loss.pth --height 128 --width 128 --warmup 10 --repetitions 300 --pass-gray
+
 ABLATION_COPY_COMMANDS
 
 # /venv/main/bin/python analysis/benchmark_mambairv2_llie_sr.py --checkpoint experiments/pretrained_models/net_g_latest_no_retinex_x4.pth --height 128 --width 128 --warmup 10 --repetitions 300 --pass-gray
